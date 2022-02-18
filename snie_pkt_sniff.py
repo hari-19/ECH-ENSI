@@ -128,13 +128,9 @@ def snie_update_datasize(packet):
             dwriter.writerow(row)
             continue
         if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) or
-            (str(packet[IP].dst) == row["Source IP address"] and
-             str(packet[IP].src) == row["Destination IP address"])) and \
+             str(packet[IP].dst) == row["Destination IP address"]) ) and \
                 ((str(packet[TCP].sport) == row["Source port"] and
-                  str(packet[TCP].dport) == row["Destination Port"]) or
-                 (str(packet[TCP].dport) == row["Source port"] and
-                  str(packet[TCP].sport) == row["Destination Port"])):
+                  str(packet[TCP].dport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             ti = float(row['Time'])
             # print("I time : " + str(ti))
@@ -214,19 +210,14 @@ def snie_update_udp_data(dreader, packet):
             continue
         pcount += 1
         if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) or
-            (str(packet[IP].dst) == row["Source IP address"] and
-             str(packet[IP].src) == row["Destination IP address"])) and \
+             str(packet[IP].dst) == row["Destination IP address"]) ) and \
                 ((str(packet[UDP].sport) == row["Source port"] and
-                  str(packet[UDP].dport) == row["Destination Port"]) or
-                 (str(packet[UDP].dport) == row["Source port"] and
-                  str(packet[UDP].sport) == row["Destination Port"])):
+                  str(packet[UDP].dport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             psize = snie_get_udppayloadlen(packet)
             dsize = osize + psize
             row['Downloaded Data size (bytes)'] = dsize
             dwriter.writerow(row)
-            #print("UDP packet updated")
             fe.write("UDP packet updated\n")
             add_pkt = False
         else:
@@ -254,6 +245,85 @@ def snie_handle_udp_packet(fp, dreader, packet):
     fe.write("\n\n New UDP packet received \n ")
     fe.close()
     snie_update_udp_data(dreader, packet)
+    return packet
+
+
+def snie_get_other_prot_info(packet):
+    sni_info = []
+    sni_info.append(str(packet.time))
+    sni_info.append("NA")
+    sni_info.append("NA")
+    sni_info.append(str(packet[IP].src))
+    sni_info.append(str(packet[IP].dst))
+    sni_info.append("NA")
+    sni_info.append("NA")
+    sni_info.append(snie_get_tr_proto(packet[IP].proto))
+    psize = "NA"
+    sni_info.append(str(psize))
+    sni_info.append("NA")
+    sni_info.append(str(0))
+    sni_info.append(str(0))
+    return sni_info
+
+
+def snie_update_other_data(dreader, packet):
+    fe = open("output_data/e.txt", "a")
+    f2 = open('./Output_data/snie_temp.csv', 'w')
+    writer = csv.writer(f2)
+    dwriter = csv.DictWriter(f2, fieldnames=csv_header)
+    writer.writerow(csv_header)
+    pcount = 0
+    rcount = 0
+    add_pkt = True
+    f1 = open('./Output_data/snie.csv', 'r')
+    reader = csv.reader(f1)
+    dreader = csv.DictReader(f1, fieldnames=csv_header)
+    for row in dreader:
+        fe.write("Row :" + str(row) + "\n")
+        rcount += 1
+        output_data = " P (Other): " + str(packet[IP].src) + ":" + str(packet[IP].dst) \
+                      #+ ":" + str(packet[UDP].sport) + ":" + str(packet[UDP].dport) + "\n"
+        fe.write(output_data)
+        output_data = " F (OTher): " + row["Source IP address"] + ":" + row["Destination IP address"] \
+                      # + ":" + row["Source port"] + ":" + row["Destination Port"] + "\n"
+        fe.write(output_data)
+        if "Protocol" == str(row["Protocol"]):
+            continue
+        pcount += 1
+        if ((str(packet[IP].src) == row["Source IP address"] and
+             str(packet[IP].dst) == row["Destination IP address"]) or
+            (str(packet[IP].dst) == row["Source IP address"] and
+             str(packet[IP].src) == row["Destination IP address"])):
+            osize = int(row["Downloaded Data size (bytes)"])
+            psize = snie_get_udppayloadlen(packet)
+            dsize = osize + psize
+            row['Downloaded Data size (bytes)'] = dsize
+            dwriter.writerow(row)
+            fe.write("UDP packet updated\n")
+            add_pkt = False
+        else:
+            dwriter.writerow(row)
+    f1.close()
+    if add_pkt:
+        rcount += 1
+        sni_info = snie_get_other_prot_info(packet)
+        writer.writerow(sni_info)
+        fe = open("output_data/e.txt", "a")
+        fe.write("New pkt info : " + str(sni_info) + "\n")
+        fe.write("new Other packet added" + "\n")
+    f2.close()
+    os.system('cp ./Output_data/snie_temp.csv ./Output_data/snie.csv')
+    fe.write("Number of rows : " + str(rcount) + "\n")
+    fe.close()
+    return add_pkt
+
+
+def snie_handle_other_packet(fp, dreader, packet):
+    from shutil import copy
+    fe = open("output_data/e.txt", "a")
+    fe.write("\n\n New other packet received \n ")
+    fe.close()
+    snie_update_other_data(dreader, packet)
     return packet
 
 
@@ -382,13 +452,9 @@ def snie_update_tcp_data(fp, dreader, packet):
             continue
         pcount += 1
         if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) or
-            (str(packet[IP].dst) == row["Source IP address"] and
-             str(packet[IP].src) == row["Destination IP address"])) and \
+             str(packet[IP].dst) == row["Destination IP address"])) and \
                 ((str(packet[TCP].sport) == row["Source port"] and
-                  str(packet[TCP].dport) == row["Destination Port"]) or
-                 (str(packet[TCP].dport) == row["Source port"] and
-                  str(packet[TCP].sport) == row["Destination Port"])):
+                  str(packet[TCP].dport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             psize = snie_get_tcppayloadlen(packet)
             dsize = osize + psize
@@ -398,7 +464,6 @@ def snie_update_tcp_data(fp, dreader, packet):
             if sni_info[1] != "NA":
                 row = snie_update_tls_info(row, sni_info)
             dwriter.writerow(row)
-            #print("UDP packet updated")
             fe.write("TCP packet updated\n")
             add_pkt = False
         else:
@@ -519,17 +584,17 @@ def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
                     elif packet[IP].proto == 17:  # UDP packet
                         udp_count += 1
                         x = snie_handle_udp_packet(fp, dreader, packet)
-                    # else:
-                    #    print("Unkown transport protocol")
+                    else:
+                        x = snie_handle_other_packet(fp, dreader, packet)
             except KeyboardInterrupt:
                 print("Execution interrupted")
                 exit(0)
             pkt_count += 1
-            print("Number of packets processed : " + str(pkt_count), end = "\r")
+            print("Number of packets processed : " + str(pkt_count), end="\r")
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
-            print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
             break
     fp.close()
+    print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
     return sd_pkts
 
 
