@@ -10,6 +10,8 @@ load_layer("tls")
 from scapy.layers.inet import IP, TCP
 import csv
 
+STO = 5 # Sniffing period in Seconds
+
 pkt_count = 0
 pkts = []
 
@@ -56,8 +58,9 @@ def snie_sniff_packets(STO):
     wrpcap(fname, capture)
 
 
-def snie_read_raw_pkts():
-    fname = "./Input_data/pkts.pcap"
+def snie_read_raw_pkts(STO):
+    fname = "./Input_data/pkts_" + str(STO) + ".pcap"
+    #fname = "./Input_data/pkts.pcap"
     print("Reading packets  ....")
     pkts = rdpcap(fname)
     # pkts = capture
@@ -619,7 +622,7 @@ def snie_sanitize_data():
 
 
 
-def snie_process_packets(MAX_PKT_COUNT):
+def snie_process_packets(MAX_PKT_COUNT, STO):
     # Process packets
     if not os.path.exists("output_data/sni.txt"):
         os.system('touch output_data/sni.txt')
@@ -643,7 +646,7 @@ def snie_process_packets(MAX_PKT_COUNT):
     sd_pkts = None
     while itr == 1:
         itr += 1
-        raw_pkts = snie_read_raw_pkts()
+        raw_pkts = snie_read_raw_pkts(STO)
         if raw_pkts is None:
             print("Too few packets to sniff")
             is_ps_stop.set()
@@ -661,15 +664,14 @@ def snie_process_packets(MAX_PKT_COUNT):
 def snie_record_and_process_pkts(command):
     global is_ps_stop
     global itime
-    STO = 5 # Sniffing period in Seconds
     MAX_PKT_COUNT = "NA" # "NA : no bound"
     is_ps_stop.clear()
     if command == "S":
         snie_sniff_packets(STO)
     elif command == "A":
-        snie_process_packets(MAX_PKT_COUNT)
+        snie_process_packets(MAX_PKT_COUNT, STO)
     elif command == "ALL":
         snie_sniff_packets(STO)
-        snie_process_packets(MAX_PKT_COUNT)
+        snie_process_packets(MAX_PKT_COUNT, STO)
     else:
         print("Unknown command : Use S/A/ALL")
