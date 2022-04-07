@@ -10,7 +10,7 @@ load_layer("tls")
 from scapy.layers.inet import IP, TCP
 import csv
 
-STO = 5 # Sniffing period in Seconds
+STO = 15 # Sniffing period in Seconds
 
 pkt_count = 0
 pkts = []
@@ -82,7 +82,8 @@ TLS_VERSIONS = {
     0x7f10: "TLS_1_3_DRAFT_16",
     0x7f12: "TLS_1_3_DRAFT_18",
     0xfeff: "DTLS_1_0",
-    0xfefd: "DTLS_1_1",
+    0xfefd: "DTLS_1_1"
+    # Misc
 }
 
 
@@ -103,6 +104,11 @@ def snie_get_tcppayloadlen(packet):
 
 def snie_get_udppayloadlen(packet):
     t_len = len(packet[UDP].payload)
+    return t_len
+
+
+def snie_get_otherpayloadlen(packet):
+    t_len = 0
     return t_len
 
 
@@ -261,7 +267,7 @@ def snie_get_other_prot_info(packet):
     sni_info.append("NA")
     sni_info.append("NA")
     sni_info.append(snie_get_tr_proto(packet[IP].proto))
-    psize = "NA"
+    psize = 0
     sni_info.append(str(psize))
     sni_info.append("NA")
     sni_info.append(str(0))
@@ -294,11 +300,11 @@ def snie_update_other_data(dreader, packet):
             continue
         pcount += 1
         if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) or
-            (str(packet[IP].dst) == row["Source IP address"] and
-             str(packet[IP].src) == row["Destination IP address"])):
+             str(packet[IP].dst) == row["Destination IP address"]) and
+            str(packet[IP].proto == row["Protocol"])):
+            #print("row " + str(row))
             osize = int(row["Downloaded Data size (bytes)"])
-            psize = snie_get_udppayloadlen(packet)
+            psize = snie_get_otherpayloadlen(packet)
             dsize = osize + psize
             row['Downloaded Data size (bytes)'] = dsize
             dwriter.writerow(row)
@@ -359,7 +365,7 @@ def snie_fill_cert_info(tls_msg):
 
 def snie_fill_ch_info(fp, tls_msg, sni_info):
     #print("Printing TLS SNI info" + "\n")
-    ver = TLS_VERSIONS[tls_msg.version]
+    ver = TLS_VERSIONS.get(tls_msg.version, "NA")
     sni_info[1] = str(ver)
     snil = ["NA"]
     for sniinfo in tls_msg['TLS_Ext_ServerName'].servernames:
@@ -404,7 +410,7 @@ def snie_get_tls_proto_info(fp, packet, sni_info):
                     except AttributeError:
                         pass
             else:
-                sni_info[1] = str(TLS_VERSIONS[tlsx.version])
+                sni_info[1] = str(TLS_VERSIONS.get(tlsx.version, "NA"))
     return sni_info
 
 
@@ -513,7 +519,7 @@ def snie_update_ch_info(fp, tls_msg, packet):
     # print("ClientHello message detected")
     sni_info = []
     sni_info.append(str(packet.time))
-    ver = TLS_VERSIONS[tls_msg.version]
+    ver = TLS_VERSIONS.get(tls_msg.version, "NA")
     sni_info.append(ver)
     for sniinfo in tls_msg['TLS_Ext_ServerName'].servernames:
         sni = ""
@@ -612,7 +618,7 @@ def snie_sanitize_data():
     f2 = open('./Output_data/snie.csv', 'r')
     reader = csv.reader(f2)
     for line in reader:
-        if "apple" in line:
+        if "apple" in line or "macos" in line:
             print(str(line) + "\n")
         else:
             writer.writerow(line)
