@@ -5,6 +5,7 @@
 import os.path
 
 from scapy.all import *
+import pyshark
 
 load_layer("tls")
 from scapy.layers.inet import IP, TCP
@@ -626,13 +627,11 @@ def snie_sanitize_data():
     f2.close()
 
 
-
-
 def snie_process_packets(MAX_PKT_COUNT, STO):
     # Process packets
-    if not os.path.exists("output_data/sni.txt"):
-        os.system('touch output_data/sni.txt')
-    fp = open('output_data/sni.txt', 'w')
+    if not os.path.exists("Output_data/sni.txt"):
+        os.system('touch Output_data/sni.txt')
+    fp = open('Output_data/sni.txt', 'w')
     fp.close()
     # Open reader file
     if os.path.exists('./Output_data/snie.csv'):

@@ -16,9 +16,9 @@ def snie_main (command):
         os.system('touch Output_data/results')
     fp = open('Output_data/results', 'w')
     fp.close()
-    if not os.path.exists("output_data/e.txt"):
-        os.system('touch output_data/e.txt')
-    fe = open("output_data/e.txt","w")
+    if not os.path.exists("Output_data/e.txt"):
+        os.system('touch Output_data/e.txt')
+    fe = open("Output_data/e.txt","w")
     fe.close()
     output_data = snie_record_and_process_pkts(command)
     return output_data
