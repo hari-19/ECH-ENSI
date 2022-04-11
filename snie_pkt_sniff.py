@@ -6,6 +6,8 @@ import os.path
 
 from scapy.all import *
 import pyshark
+import warnings
+warnings.filterwarnings(action= 'ignore')
 
 load_layer("tls")
 from scapy.layers.inet import IP, TCP
@@ -21,6 +23,7 @@ capture = sniff(count=1)
 is_ps_stop = Event()
 tcp_count = 0
 udp_count = 0
+quic_count = 0
 
 header = ["Time", "TLS version", "SNI", "Source IP address", "Destination IP address", "Source port",
           "Destination Port", "Protocol", "Downloaded Data size (bytes)", "TLS session duration (s)",
@@ -62,10 +65,10 @@ def snie_sniff_packets(STO):
 def snie_read_raw_pkts(STO):
     fname = "./Input_data/pkts_" + str(STO) + ".pcap"
     #fname = "./Input_data/pkts.pcap"
-    print("Reading packets  ....")
+    print("[+] Reading packets from " + str(fname))
     # pkts = rdpcap(fname)
     pkts = pyshark.FileCapture(fname) # pkts = capture
-    print("Reading done ....")
+    print("[+] Reading done")
     return pkts
 
 
@@ -102,17 +105,17 @@ def snie_get_tr_proto(ip):
 
 def snie_get_tcppayloadlen(packet):
     t_len = int(packet['tcp'].len)
-    return t_len
+    return t_len*8
 
 
 def snie_get_udppayloadlen(packet):
     t_len = int(packet['udp'].length)
-    return t_len
+    return t_len*8
 
 
 def snie_get_otherpayloadlen(packet):
-    t_len = 0
-    return t_len
+    t_len = int(0)
+    return t_len*8
 
 
 def snie_update_datasize(packet):
@@ -602,7 +605,7 @@ def snie_handle_tcp_packet(fp, packet):
     return packet
 
 
-def snie_record_quic_info(saddr, daddr, sport, dport, sni, len = 0, tstamp = 0):
+def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp):
     fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'w')
     writer = csv.writer(f2)
@@ -638,9 +641,9 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len = 0, tstamp = 0):
                 ((str(sport) == row["Source port"] and
                   str(dport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
-            psize = len
+            psize = len*8
             dsize = osize + psize
-            row['Downloaded Data size (bytes)'] = dsize
+            row['Downloaded Data size (bytes)'] = str(dsize)
             # Update TLS duration
             ti = float(row['Time'])
             te = float(tstamp)
@@ -656,7 +659,7 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len = 0, tstamp = 0):
     f1.close()
     if add_pkt:
         rcount += 1
-        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, 0)
+        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len*8, tstamp)
         writer.writerow(sni_info)
         fe = open("./Output_data/e.txt", "a")
         #print("new UDP packet added")
@@ -677,28 +680,31 @@ def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
     pkt_count = 0
     global tcp_count
     global udp_count
+    global quic_count
     # Filter TLS packets nd get SNI
     for packet in raw_pkts:
         if 'ip' in packet:
             for layer in packet:
                 try:
                     if layer.layer_name == 'tcp':
-                        tcp_count += 1
                         x = snie_handle_tcp(fp, dreader, packet)
+                        tcp_count += 1
                     elif layer.layer_name == 'udp':  # UDP packet
-                        udp_count += 1
                         x = snie_handle_udp_packet(fp, dreader, packet)
+                        udp_count += 1
                     if layer.layer_name == 'quic':  # QUIC packet
                         from snie_quic import sne_quic_extract_pkt_info
                         saddr, daddr, sport, dport, sni, qlen, tstamp = sne_quic_extract_pkt_info(packet, layer)
                         snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp)
+                        quic_count += 1
                     else:
                         x = snie_handle_other_packet(fp, dreader, packet)
                 except KeyboardInterrupt:
                     print("Execution interrupted")
                     exit(0)
             pkt_count += 1
-            print("Number of packets processed : " + str(pkt_count), end="\r")
+            print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
+                  "  QUIC = " + str(quic_count) + "  Total = " + str(pkt_count), end="\r")
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
             break
     fp.close()
