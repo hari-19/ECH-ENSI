@@ -63,8 +63,8 @@ def snie_read_raw_pkts(STO):
     fname = "./Input_data/pkts_" + str(STO) + ".pcap"
     #fname = "./Input_data/pkts.pcap"
     print("Reading packets  ....")
-    pkts = rdpcap(fname)
-    # pkts = capture
+    # pkts = rdpcap(fname)
+    pkts = pyshark.FileCapture(fname) # pkts = capture
     print("Reading done ....")
     return pkts
 
@@ -90,21 +90,23 @@ TLS_VERSIONS = {
 
 def snie_get_tr_proto(ip):
     import socket
-    if ip == socket.IPPROTO_TCP:
+    #  if ip == str(socket.IPPROTO_TCP) or ip == str(socket.IPPROTO_UDP):
+    #    print(str(ip) + " : ")
+    if ip == str(socket.IPPROTO_TCP):
         return "TCP"
-    elif ip == socket.IPPROTO_UDP:
+    elif ip == str(socket.IPPROTO_UDP):
         return "UDP"
     else:
         return "UNKNOWN"
 
 
 def snie_get_tcppayloadlen(packet):
-    t_len = len(packet[TCP].payload)
+    t_len = int(packet['tcp'].len)
     return t_len
 
 
 def snie_get_udppayloadlen(packet):
-    t_len = len(packet[UDP].payload)
+    t_len = int(packet['udp'].length)
     return t_len
 
 
@@ -116,19 +118,19 @@ def snie_get_otherpayloadlen(packet):
 def snie_update_datasize(packet):
     if not packet.haslayer('TCP'):
         return
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'a')
     writer = csv.writer(f2)
     dwriter = csv.DictWriter(f2, fieldnames=csv_header)
-    flow_id = str(packet[IP].src) + "_" + str(packet[IP].dst) + "_" + str(packet[TCP].sport) + "_" \
-              + str(packet[TCP].dport)
+    flow_id = str(packet['ip'].src) + "_" + str(packet['ip'].dst) + "_" + str(packet['tcp'].sport) + "_" \
+              + str(packet['tcp'].dport)
     # print("Flow id : " + str(flow_id) + str(reader))
     f1 = open('./Output_data/snie.csv', 'r')
     reader = csv.reader(f1)
     dreader = csv.DictReader(f1, fieldnames=csv_header)
     for row in dreader:
-        output_data = " P : " + str(packet[IP].src) + ":" + str(packet[IP].dst) + ":" + str(packet[TCP].sport) + ":" + \
-                      str(packet[TCP].dport) + "\n"
+        output_data = " P : " + str(packet['ip'].src) + ":" + str(packet['ip'].dst) + ":" + str(packet['tcp'].sport) + ":" + \
+                      str(packet['tcp'].dport) + "\n"
         output_data += " F : " + row["Source IP address"] + ":" + row["Destination IP address"] + ":" + \
                        row["Source port"] + ":" + row["Destination Port"] + "\n"
         fe.write(output_data)
@@ -137,10 +139,10 @@ def snie_update_datasize(packet):
         if "TCP" != str(row["Protocol"]):
             dwriter.writerow(row)
             continue
-        if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) ) and \
-                ((str(packet[TCP].sport) == row["Source port"] and
-                  str(packet[TCP].dport) == row["Destination Port"])):
+        if ((str(packet['ip'].src) == row["Source IP address"] and
+             str(packet['ip'].dst) == row["Destination IP address"]) ) and \
+                ((str(packet['tcp'].sport) == row["Source port"] and
+                  str(packet['tcp'].dport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             ti = float(row['Time'])
             # print("I time : " + str(ti))
@@ -150,11 +152,11 @@ def snie_update_datasize(packet):
             dsize = osize + psize
             # print("new size " + str(dsize))
             row['Downloaded Data size (bytes)'] = dsize
-            te = packet.time
+            te = packet.sniff_timestamp
             # print("E time : " + str(te))
             tdiff = te - ti
             # print("Diff = " + str(tdiff))
-            # tdfif = tdiff.total_seconds()
+            tdiff = tdiff.total_seconds()
             # print("DiffS = " + str(tdiff))
             row["TLS session duration (s)"] = tdiff
             dwriter.writerow(row)
@@ -167,16 +169,34 @@ def snie_update_datasize(packet):
     fe.close()
 
 
+def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp):
+    sni_info = []
+    sni_info.append(str(tstamp))
+    sni_info.append("NA")
+    sni_info.append(str(sni))
+    sni_info.append(str(saddr))
+    sni_info.append(str(daddr))
+    sni_info.append(str(sport))
+    sni_info.append(str(dport))
+    sni_info.append("QUIC")
+    psize = str(len)
+    sni_info.append(str(psize))
+    sni_info.append(str(0))
+    sni_info.append(str(0))
+    sni_info.append(str(0))
+    return sni_info
+
+
 def snie_get_udp_prot_info(packet):
     sni_info = []
-    sni_info.append(str(packet.time))
+    sni_info.append(str(packet.sniff_timestamp))
     sni_info.append("NA")
     sni_info.append("NA")
-    sni_info.append(str(packet[IP].src))
-    sni_info.append(str(packet[IP].dst))
-    sni_info.append(str(packet[UDP].sport))
-    sni_info.append(str(packet[UDP].dport))
-    sni_info.append(snie_get_tr_proto(packet[IP].proto))
+    sni_info.append(str(packet['ip'].src))
+    sni_info.append(str(packet['ip'].dst))
+    sni_info.append(str(packet['udp'].srcport))
+    sni_info.append(str(packet['udp'].dstport))
+    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
     psize = snie_get_udppayloadlen(packet)
     sni_info.append(str(psize))
     sni_info.append("NA")
@@ -186,15 +206,15 @@ def snie_get_udp_prot_info(packet):
 
 
 def snie_update_udp_data(dreader, packet):
-    if not packet.haslayer('UDP'):
+    if not 'udp' in packet:
         return
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'w')
     writer = csv.writer(f2)
     dwriter = csv.DictWriter(f2, fieldnames=csv_header)
     writer.writerow(csv_header)
-    flow_id = str(packet[IP].src) + "_" + str(packet[IP].dst) + "_" + str(packet[UDP].sport) + "_" \
-              + str(packet[UDP].dport)
+    flow_id = str(packet['ip'].src) + "_" + str(packet['ip'].dst) + "_" + str(packet['udp'].srcport) + "_" \
+              + str(packet['udp'].dstport)
     # print("Flow id : " + str(flow_id) + str(reader))
     pcount = 0
     rcount = 0
@@ -205,9 +225,9 @@ def snie_update_udp_data(dreader, packet):
     for row in dreader:
         fe.write("Row :" + str(row) + "\n")
         rcount += 1
-        output_data = " P (UDP): " + str(packet[IP].src) + ":" + str(packet[IP].dst) + ":" + str(
-            packet[UDP].sport) + ":" + \
-                      str(packet[UDP].dport) + "\n"
+        output_data = " P (UDP): " + str(packet['ip'].src) + ":" + str(packet['ip'].dst) + ":" + str(
+            packet['udp'].srcport) + ":" + \
+                      str(packet['udp'].dstport) + "\n"
         fe.write(output_data)
         output_data = " F (UDP): " + row["Source IP address"] + ":" + row["Destination IP address"] + ":" + \
                       row["Source port"] + ":" + row["Destination Port"] + "\n"
@@ -219,10 +239,10 @@ def snie_update_udp_data(dreader, packet):
             dwriter.writerow(row)
             continue
         pcount += 1
-        if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) ) and \
-                ((str(packet[UDP].sport) == row["Source port"] and
-                  str(packet[UDP].dport) == row["Destination Port"])):
+        if ((str(packet['ip'].src) == row["Source IP address"] and
+             str(packet['ip'].dst) == row["Destination IP address"]) ) and \
+                ((str(packet['udp'].srcport) == row["Source port"] and
+                  str(packet['udp'].dstport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             psize = snie_get_udppayloadlen(packet)
             dsize = osize + psize
@@ -237,7 +257,7 @@ def snie_update_udp_data(dreader, packet):
         rcount += 1
         sni_info = snie_get_udp_prot_info(packet)
         writer.writerow(sni_info)
-        fe = open("output_data/e.txt", "a")
+        fe = open("./Output_data/e.txt", "a")
         #print("new UDP packet added")
         fe.write("New pkt info : " + str(sni_info) + "\n")
         fe.write("new UDP packet added" + "\n")
@@ -251,7 +271,7 @@ def snie_update_udp_data(dreader, packet):
 
 def snie_handle_udp_packet(fp, dreader, packet):
     from shutil import copy
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     fe.write("\n\n New UDP packet received \n ")
     fe.close()
     snie_update_udp_data(dreader, packet)
@@ -260,14 +280,14 @@ def snie_handle_udp_packet(fp, dreader, packet):
 
 def snie_get_other_prot_info(packet):
     sni_info = []
-    sni_info.append(str(packet.time))
+    sni_info.append(str(packet.sniff_timestamp))
     sni_info.append("NA")
     sni_info.append("NA")
-    sni_info.append(str(packet[IP].src))
-    sni_info.append(str(packet[IP].dst))
+    sni_info.append(str(packet['ip'].src))
+    sni_info.append(str(packet['ip'].dst))
     sni_info.append("NA")
     sni_info.append("NA")
-    sni_info.append(snie_get_tr_proto(packet[IP].proto))
+    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
     psize = 0
     sni_info.append(str(psize))
     sni_info.append("NA")
@@ -277,7 +297,7 @@ def snie_get_other_prot_info(packet):
 
 
 def snie_update_other_data(dreader, packet):
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'w')
     writer = csv.writer(f2)
     dwriter = csv.DictWriter(f2, fieldnames=csv_header)
@@ -291,7 +311,7 @@ def snie_update_other_data(dreader, packet):
     for row in dreader:
         fe.write("Row :" + str(row) + "\n")
         rcount += 1
-        output_data = " P (Other): " + str(packet[IP].src) + ":" + str(packet[IP].dst) \
+        output_data = " P (Other): " + str(packet['ip'].src) + ":" + str(packet['ip'].dst) \
                       #+ ":" + str(packet[UDP].sport) + ":" + str(packet[UDP].dport) + "\n"
         fe.write(output_data)
         output_data = " F (OTher): " + row["Source IP address"] + ":" + row["Destination IP address"] \
@@ -300,9 +320,9 @@ def snie_update_other_data(dreader, packet):
         if "Protocol" == str(row["Protocol"]):
             continue
         pcount += 1
-        if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"]) and
-            str(packet[IP].proto == row["Protocol"])):
+        if ((str(packet['ip'].src) == row["Source IP address"] and
+             str(packet['ip'].dst) == row["Destination IP address"]) and
+            str(packet['ip'].proto == row["Protocol"])):
             #print("row " + str(row))
             osize = int(row["Downloaded Data size (bytes)"])
             psize = snie_get_otherpayloadlen(packet)
@@ -318,7 +338,7 @@ def snie_update_other_data(dreader, packet):
         rcount += 1
         sni_info = snie_get_other_prot_info(packet)
         writer.writerow(sni_info)
-        fe = open("output_data/e.txt", "a")
+        fe = open("./Output_data/e.txt", "a")
         fe.write("New pkt info : " + str(sni_info) + "\n")
         fe.write("new Other packet added" + "\n")
     f2.close()
@@ -330,7 +350,7 @@ def snie_update_other_data(dreader, packet):
 
 def snie_handle_other_packet(fp, dreader, packet):
     from shutil import copy
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     fe.write("\n\n New other packet received \n ")
     fe.close()
     snie_update_other_data(dreader, packet)
@@ -339,14 +359,14 @@ def snie_handle_other_packet(fp, dreader, packet):
 
 def snie_get_tcp_prot_info(packet):
     sni_info = []
-    sni_info.append(str(packet.time))
+    sni_info.append(str(packet.sniff_timestamp))
     sni_info.append("NA")
     sni_info.append("NA")
-    sni_info.append(str(packet[IP].src))
-    sni_info.append(str(packet[IP].dst))
-    sni_info.append(str(packet[TCP].sport))
-    sni_info.append(str(packet[TCP].dport))
-    sni_info.append(snie_get_tr_proto(packet[IP].proto))
+    sni_info.append(str(packet['ip'].src))
+    sni_info.append(str(packet['ip'].dst))
+    sni_info.append(str(packet['tcp'].srcport))
+    sni_info.append(str(packet['tcp'].dstport))
+    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
     psize = snie_get_tcppayloadlen(packet)
     sni_info.append(str(psize))
     sni_info.append("NA")
@@ -377,7 +397,7 @@ def snie_fill_ch_info(fp, tls_msg, sni_info):
             output_data = str(sni) + "\n"
             fp.write(output_data)
             #print(output_data + "\n")
-        fe = open("output_data/e.txt", "a")
+        fe = open("./Output_data/e.txt", "a")
         fe.write("SNI added " + str(sni))
         fe.close()
         f1 = open('./Output_data/snie_temp.csv', 'a')
@@ -391,8 +411,8 @@ def snie_fill_ch_info(fp, tls_msg, sni_info):
 
 
 def snie_get_tls_proto_info(fp, packet, sni_info):
-    if packet[TCP].dport == 443 or packet[TCP].sport == 443:  # Encrypted TCP packet
-        if packet.haslayer('TLS'):
+    if packet['tcp'].dstport == 443 or packet['tcp'].srcport == 443:  # Encrypted TCP packet
+        if 'tls' in packet:
             tlsx = packet['TLS']
             if isinstance(tlsx, bytes):
                 return packet
@@ -428,15 +448,15 @@ def snie_update_tls_info(row, sni_info):
 
 
 def snie_update_tcp_data(fp, dreader, packet):
-    if not packet.haslayer('TCP'):
+    if not 'tcp' in packet:
         return
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'w')
     writer = csv.writer(f2)
     dwriter = csv.DictWriter(f2, fieldnames=csv_header)
     writer.writerow(csv_header)
-    flow_id = str(packet[IP].src) + "_" + str(packet[IP].dst) + "_" + str(packet[TCP].sport) + "_" \
-              + str(packet[TCP].dport)
+    flow_id = str(packet['ip'].src) + "_" + str(packet['ip'].dst) + "_" + str(packet['tcp'].srcport) + "_" \
+              + str(packet['tcp'].dstport)
     # print("Flow id : " + str(flow_id) + str(reader))
     pcount = 0
     rcount = 0
@@ -447,9 +467,9 @@ def snie_update_tcp_data(fp, dreader, packet):
     for row in dreader:
         fe.write("Row :" + str(row) + "\n")
         rcount += 1
-        output_data = " P (TCP): " + str(packet[IP].src) + ":" + str(packet[IP].dst) + ":" + str(
-            packet[TCP].sport) + ":" + \
-                      str(packet[TCP].dport) + "\n"
+        output_data = " P (TCP): " + str(packet['ip'].src) + ":" + str(packet['ip'].dst) + ":" + str(
+            packet['tcp'].srcport) + ":" + \
+                      str(packet['tcp'].dstport) + "\n"
         fe.write(output_data)
         output_data = " F (TCP): " + row["Source IP address"] + ":" + row["Destination IP address"] + ":" + \
                       row["Source port"] + ":" + row["Destination Port"] + "\n"
@@ -461,14 +481,21 @@ def snie_update_tcp_data(fp, dreader, packet):
             dwriter.writerow(row)
             continue
         pcount += 1
-        if ((str(packet[IP].src) == row["Source IP address"] and
-             str(packet[IP].dst) == row["Destination IP address"])) and \
-                ((str(packet[TCP].sport) == row["Source port"] and
-                  str(packet[TCP].dport) == row["Destination Port"])):
+        if ((str(packet['ip'].src) == row["Source IP address"] and
+             str(packet['ip'].dst) == row["Destination IP address"])) and \
+                ((str(packet['tcp'].srcport) == row["Source port"] and
+                  str(packet['tcp'].dstport) == row["Destination Port"])):
             osize = int(row["Downloaded Data size (bytes)"])
             psize = snie_get_tcppayloadlen(packet)
             dsize = osize + psize
             row['Downloaded Data size (bytes)'] = dsize
+            # Update TLS duration
+            ti = float(row['Time'])
+            te = float(packet.sniff_timestamp)
+            tdiff = te - ti
+            # tdiff = tdiff.total_seconds()
+            row["TLS session duration (s)"] = tdiff
+            # Update TLS duration
             sni_info = ["NA", "NA", ["NA"]]
             sni_info = snie_get_tls_proto_info(fp, packet, sni_info)
             if sni_info[1] != "NA":
@@ -484,7 +511,7 @@ def snie_update_tcp_data(fp, dreader, packet):
         sni_info = snie_get_tcp_prot_info(packet)
         sni_info = snie_get_tls_proto_info(fp, packet, sni_info)
         writer.writerow(sni_info)
-        fe = open("output_data/e.txt", "a")
+        fe = open("./Output_data/e.txt", "a")
         fe.write("New pkt info : " + str(sni_info) + "\n")
         fe.write("new TCP packet added" + "\n")
     f2.close()
@@ -496,7 +523,7 @@ def snie_update_tcp_data(fp, dreader, packet):
 
 def snie_handle_tcp(fp, dreader, packet):
     from shutil import copy
-    fe = open("output_data/e.txt", "a")
+    fe = open("./Output_data/e.txt", "a")
     fe.write("\n\n New TCP packet received \n ")
     fe.close()
     snie_update_tcp_data(fp, dreader, packet)
@@ -504,11 +531,11 @@ def snie_handle_tcp(fp, dreader, packet):
 
 
 def snie_get_proto_info(sni_info, packet):
-    sni_info.append(str(packet[IP].src))
-    sni_info.append(str(packet[IP].dst))
-    sni_info.append(str(packet[TCP].sport))
-    sni_info.append(str(packet[TCP].dport))
-    sni_info.append(snie_get_tr_proto(packet[IP].proto))
+    sni_info.append(str(packet['ip'].src))
+    sni_info.append(str(packet['ip'].dst))
+    sni_info.append(str(packet['tcp'].sport))
+    sni_info.append(str(packet['tcp'].dport))
+    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
     sni_info.append(snie_get_tcppayloadlen(packet))
     sni_info.append(str(0))
     sni_info.append(str(0))
@@ -529,7 +556,7 @@ def snie_update_ch_info(fp, tls_msg, packet):
             sni = sniinfo.servername.decode('utf-8')
             output_data = str(sni) + "\n"
             fp.write(output_data)
-        fe = open("output_data/e.txt", "a")
+        fe = open("./Output_data/e.txt", "a")
         fe.write("SNI added " + str(sni))
         fe.close()
         f1 = open('./Output_data/snie_temp.csv', 'a')
@@ -550,7 +577,7 @@ def snie_update_cert_info(fp, tls_msg, packet):
 
 
 def snie_handle_tcp_packet(fp, packet):
-    if packet[TCP].dport == 443 or packet[TCP].sport == 443:  # Encrypted TCP packet
+    if packet['tcp'].dport == 443 or packet['tcp'].sport == 443:  # Encrypted TCP packet
         if packet.haslayer('TLS'):
             tlsx = packet['TLS']
             if isinstance(tlsx, bytes):
@@ -575,30 +602,101 @@ def snie_handle_tcp_packet(fp, packet):
     return packet
 
 
+def snie_record_quic_info(saddr, daddr, sport, dport, sni, len = 0, tstamp = 0):
+    fe = open("./Output_data/e.txt", "a")
+    f2 = open('./Output_data/snie_temp.csv', 'w')
+    writer = csv.writer(f2)
+    dwriter = csv.DictWriter(f2, fieldnames=csv_header)
+    writer.writerow(csv_header)
+    flow_id = str(saddr) + "_" + str(daddr) + "_" + str(sport) + "_" \
+              + str(dport)
+    # print("Flow id : " + str(flow_id) + str(reader))
+    pcount = 0
+    rcount = 0
+    add_pkt = True
+    f1 = open('./Output_data/snie.csv', 'r')
+    reader = csv.reader(f1)
+    dreader = csv.DictReader(f1, fieldnames=csv_header)
+    for row in dreader:
+        fe.write("Row :" + str(row) + "\n")
+        rcount += 1
+        output_data = " P (UDP): " + str(saddr) + ":" + str(daddr) + ":" + str(sport) + ":" + \
+                      str(dport) + "\n"
+        fe.write(output_data)
+        output_data = " F (UDP): " + row["Source IP address"] + ":" + row["Destination IP address"] + ":" + \
+                      row["Source port"] + ":" + row["Destination Port"] + "\n"
+        fe.write(output_data)
+        if "Protocol" == str(row["Protocol"]):
+            continue
+        if "QUIC" != str(row["Protocol"]):
+            fe.write("Non-UDP row \n")
+            dwriter.writerow(row)
+            continue
+        pcount += 1
+        if ((str(saddr) == row["Source IP address"] and
+             str(daddr) == row["Destination IP address"]) ) and \
+                ((str(sport) == row["Source port"] and
+                  str(dport) == row["Destination Port"])):
+            osize = int(row["Downloaded Data size (bytes)"])
+            psize = len
+            dsize = osize + psize
+            row['Downloaded Data size (bytes)'] = dsize
+            # Update TLS duration
+            ti = float(row['Time'])
+            te = float(tstamp)
+            tdiff = te - ti
+            # tdiff = tdiff.total_seconds()
+            row["TLS session duration (s)"] = tdiff
+            # Update TLS duration
+            dwriter.writerow(row)
+            fe.write("UDP packet updated\n")
+            add_pkt = False
+        else:
+            dwriter.writerow(row)
+    f1.close()
+    if add_pkt:
+        rcount += 1
+        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, 0)
+        writer.writerow(sni_info)
+        fe = open("./Output_data/e.txt", "a")
+        #print("new UDP packet added")
+        fe.write("New pkt info : " + str(sni_info) + "\n")
+        fe.write("new QUIC packet added" + "\n")
+    f2.close()
+    os.system('cp ./Output_data/snie_temp.csv ./Output_data/snie.csv')
+    fe.write("Number of rows : " + str(rcount) + "\n")
+    #print("Number of rows : " + str(rcount))
+    fe.close()
+    return add_pkt
+
+
+
 def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
     sd_pkts = []
-    fp = open('output_data/sni.txt', 'a')
+    fp = open('./Output_data/sni.txt', 'a')
     pkt_count = 0
     global tcp_count
     global udp_count
     # Filter TLS packets nd get SNI
-    sessions = raw_pkts.sessions()
-    for session in sessions:
-        for packet in sessions[session]:
-            try:
-                if packet.haslayer('IP'):
-                    if packet[IP].proto == 6: # TCP packet
+    for packet in raw_pkts:
+        if 'ip' in packet:
+            for layer in packet:
+                try:
+                    if layer.layer_name == 'tcp':
                         tcp_count += 1
-                        #x = snie_handle_tcp_packet(fp, packet)
                         x = snie_handle_tcp(fp, dreader, packet)
-                    elif packet[IP].proto == 17:  # UDP packet
+                    elif layer.layer_name == 'udp':  # UDP packet
                         udp_count += 1
                         x = snie_handle_udp_packet(fp, dreader, packet)
+                    if layer.layer_name == 'quic':  # QUIC packet
+                        from snie_quic import sne_quic_extract_pkt_info
+                        saddr, daddr, sport, dport, sni, qlen, tstamp = sne_quic_extract_pkt_info(packet, layer)
+                        snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp)
                     else:
                         x = snie_handle_other_packet(fp, dreader, packet)
-            except KeyboardInterrupt:
-                print("Execution interrupted")
-                exit(0)
+                except KeyboardInterrupt:
+                    print("Execution interrupted")
+                    exit(0)
             pkt_count += 1
             print("Number of packets processed : " + str(pkt_count), end="\r")
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
@@ -629,9 +727,9 @@ def snie_sanitize_data():
 
 def snie_process_packets(MAX_PKT_COUNT, STO):
     # Process packets
-    if not os.path.exists("Output_data/sni.txt"):
-        os.system('touch Output_data/sni.txt')
-    fp = open('Output_data/sni.txt', 'w')
+    if not os.path.exists("./Output_data/sni.txt"):
+        os.system('touch ./Output_data/sni.txt')
+    fp = open('./Output_data/sni.txt', 'w')
     fp.close()
     # Open reader file
     if os.path.exists('./Output_data/snie.csv'):
@@ -645,7 +743,7 @@ def snie_process_packets(MAX_PKT_COUNT, STO):
     f1.close()
     dreader = None
     # Open writer file
-    fe = open("output_data/e.txt", "w")
+    fe = open("./Output_data/e.txt", "w")
     fe.close()
     itr = 1
     sd_pkts = None
