@@ -63,30 +63,28 @@ def snie_sniff_packets(STO):
 
 
 def snie_read_raw_pkts(STO):
-    fname = "./Input_data/pkts_" + str(STO) + ".pcap"
-    #fname = "./Input_data/pkts.pcap"
+    fname = "./Input_data/pkts.pcap"
     print("[+] Reading packets from " + str(fname))
-    # pkts = rdpcap(fname)
-    pkts = pyshark.FileCapture(fname) # pkts = capture
+    pkts = pyshark.FileCapture(fname)
     print("[+] Reading done")
     return pkts
 
 
 TLS_VERSIONS = {
     # SSL
-    0x0002: "SSL_2_0",
-    0x0300: "SSL_3_0",
+    "0x0002": "SSL_2_0",
+    "0x0300": "SSL_3_0",
     # TLS:
-    0x0301: "TLS_1_0",
-    0x0302: "TLS_1_1",
-    0x0303: "TLS_1_2",
-    0x0304: "TLS_1_3",
+    "0x0301": "TLS_1_0",
+    "0x0302": "TLS_1_1",
+    "0x0303": "TLS_1_2",
+    "0x0304": "TLS_1_3",
     # DTLS
-    0x0100: "PROTOCOL_DTLS_1_0_OPENSSL_PRE_0_9_8f",
-    0x7f10: "TLS_1_3_DRAFT_16",
-    0x7f12: "TLS_1_3_DRAFT_18",
-    0xfeff: "DTLS_1_0",
-    0xfefd: "DTLS_1_1"
+    "0x0100": "PROTOCOL_DTLS_1_0_OPENSSL_PRE_0_9_8f",
+    "0x7f10": "TLS_1_3_DRAFT_16",
+    "0x7f12": "TLS_1_3_DRAFT_18",
+    "0xfeff": "DTLS_1_0",
+    "0xfefd": "DTLS_1_1"
     # Misc
 }
 
@@ -100,7 +98,7 @@ def snie_get_tr_proto(ip):
     elif ip == str(socket.IPPROTO_UDP):
         return "UDP"
     else:
-        return "UNKNOWN"
+        return str(ip)
 
 
 def snie_get_tcppayloadlen(packet):
@@ -172,10 +170,10 @@ def snie_update_datasize(packet):
     fe.close()
 
 
-def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp):
+def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
     sni_info = []
     sni_info.append(str(tstamp))
-    sni_info.append("NA")
+    sni_info.append(str(TLS_VERSIONS.get(tls_version, "NA")))
     sni_info.append(str(sni))
     sni_info.append(str(saddr))
     sni_info.append(str(daddr))
@@ -250,6 +248,7 @@ def snie_update_udp_data(dreader, packet):
             psize = snie_get_udppayloadlen(packet)
             dsize = osize + psize
             row['Downloaded Data size (bytes)'] = dsize
+            # print("UDP Packet : " + str(row) + "\n")
             dwriter.writerow(row)
             fe.write("UDP packet updated\n")
             add_pkt = False
@@ -259,6 +258,7 @@ def snie_update_udp_data(dreader, packet):
     if add_pkt:
         rcount += 1
         sni_info = snie_get_udp_prot_info(packet)
+        # print("UDP Packet : " + str(sni_info) + "\n")
         writer.writerow(sni_info)
         fe = open("./Output_data/e.txt", "a")
         #print("new UDP packet added")
@@ -283,13 +283,14 @@ def snie_handle_udp_packet(fp, dreader, packet):
 
 def snie_get_other_prot_info(packet):
     sni_info = []
+    print("Other packet : " + str(dir(packet['ip'])))
     sni_info.append(str(packet.sniff_timestamp))
     sni_info.append("NA")
     sni_info.append("NA")
     sni_info.append(str(packet['ip'].src))
     sni_info.append(str(packet['ip'].dst))
-    sni_info.append("NA")
-    sni_info.append("NA")
+    sni_info.append(str(packet['ip'].src_host))
+    sni_info.append(str(packet['ip'].dst_host))
     sni_info.append(snie_get_tr_proto(packet['ip'].proto))
     psize = 0
     sni_info.append(str(psize))
@@ -414,27 +415,18 @@ def snie_fill_ch_info(fp, tls_msg, sni_info):
 
 
 def snie_get_tls_proto_info(fp, packet, sni_info):
-    if packet['tcp'].dstport == 443 or packet['tcp'].srcport == 443:  # Encrypted TCP packet
+    from pyshark.packet.fields import LayerField
+    if int(packet['tcp'].dstport) == 443 or int(packet['tcp'].srcport) == 443:  # Encrypted TCP packet
         if 'tls' in packet:
-            tlsx = packet['TLS']
-            if isinstance(tlsx, bytes):
-                return packet
-            tlsxtype = tlsx.type
-            if tlsxtype == 22:  # TLS Handshake
-                for tls_msg in tlsx.msg:
-                    if isinstance(tls_msg, bytes):
-                        continue
-                    try:
-                        if tls_msg.msgtype is not None and tls_msg.msgtype == 1:  # Client Hello
-                            sni_info = snie_fill_ch_info(fp, tls_msg, sni_info)
-                        elif tls_msg.msgtype == 11:  # Certificate
-                            snie_update_cert_info(fp, tls_msg, packet)
-                        # else:
-                        # print("Unsupported TLS handshake message : " + str(tls_msg.msgtype))
-                    except AttributeError:
-                        pass
-            else:
-                sni_info[1] = str(TLS_VERSIONS.get(tlsx.version, "NA"))
+            for layer in packet:
+                if layer.layer_name == "tls":
+                    llayer = dir(layer)
+                    if "record_version" in llayer:
+                        tls_version = layer.record_version
+                        sni_info[1] = TLS_VERSIONS.get(tls_version, "NA")
+                    if 'handshake_extensions_server_name' in llayer:
+                        sni = layer.handshake_extensions_server_name.showname.replace("Server Name: ", "")
+                        sni_info[2] = sni
     return sni_info
 
 
@@ -605,7 +597,7 @@ def snie_handle_tcp_packet(fp, packet):
     return packet
 
 
-def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp):
+def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
     fe = open("./Output_data/e.txt", "a")
     f2 = open('./Output_data/snie_temp.csv', 'w')
     writer = csv.writer(f2)
@@ -640,10 +632,12 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp):
              str(daddr) == row["Destination IP address"]) ) and \
                 ((str(sport) == row["Source port"] and
                   str(dport) == row["Destination Port"])):
+            # Update data size
             osize = int(row["Downloaded Data size (bytes)"])
             psize = len*8
             dsize = osize + psize
             row['Downloaded Data size (bytes)'] = str(dsize)
+            # Update data size
             # Update TLS duration
             ti = float(row['Time'])
             te = float(tstamp)
@@ -659,7 +653,8 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp):
     f1.close()
     if add_pkt:
         rcount += 1
-        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len*8, tstamp)
+        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len*8, tstamp, tls_version)
+        # print("QUIC SNI Info : " + str(sni_info))
         writer.writerow(sni_info)
         fe = open("./Output_data/e.txt", "a")
         #print("new UDP packet added")
@@ -673,7 +668,6 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp):
     return add_pkt
 
 
-
 def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
     sd_pkts = []
     fp = open('./Output_data/sni.txt', 'a')
@@ -684,35 +678,35 @@ def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
     # Filter TLS packets nd get SNI
     for packet in raw_pkts:
         if 'ip' in packet:
-            for layer in packet:
-                try:
-                    if layer.layer_name == 'tcp':
-                        x = snie_handle_tcp(fp, dreader, packet)
-                        tcp_count += 1
-                    elif layer.layer_name == 'udp':  # UDP packet
-                        x = snie_handle_udp_packet(fp, dreader, packet)
-                        udp_count += 1
-                    if layer.layer_name == 'quic':  # QUIC packet
-                        from snie_quic import sne_quic_extract_pkt_info
-                        saddr, daddr, sport, dport, sni, qlen, tstamp = sne_quic_extract_pkt_info(packet, layer)
-                        snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp)
-                        quic_count += 1
-                    else:
-                        x = snie_handle_other_packet(fp, dreader, packet)
-                except KeyboardInterrupt:
-                    print("Execution interrupted")
-                    exit(0)
+            try:
+                if 'tcp' in packet:
+                    x = snie_handle_tcp(fp, dreader, packet)
+                    tcp_count += 1
+                elif 'udp' in packet:  # UDP packet
+                    x = snie_handle_udp_packet(fp, dreader, packet)
+                    udp_count += 1
+                if 'quic' in packet:  # QUIC packet
+                    from snie_quic import sne_quic_extract_pkt_info
+                    saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version = sne_quic_extract_pkt_info(packet)
+                    snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
+                    quic_count += 1
+                else:
+                    x = snie_handle_other_packet(fp, dreader, packet)
+            except KeyboardInterrupt:
+                print("Execution interrupted")
+                exit(0)
             pkt_count += 1
             print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
                   "  QUIC = " + str(quic_count) + "  Total = " + str(pkt_count), end="\r")
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
             break
     fp.close()
-    print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
+    # print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
     return sd_pkts
 
 
 def snie_sanitize_data():
+    print("Sanitising data")
     if os.path.exists('./Output_data/snie_s.csv'):
         os.system('rm -rf ./Output_data/snie_s.csv')
         os.system('touch ./Output_data/snie_s.csv')
@@ -724,11 +718,22 @@ def snie_sanitize_data():
     reader = csv.reader(f2)
     for line in reader:
         if "apple" in line or "macos" in line:
-            print(str(line) + "\n")
+            continue
+        if line[2] != "NA":
+            sni = line[2]
+            sni = sni.replace(" ", "")
+            snil = list(sni.replace(",", ""))
+            sni = ""
+            for item in snil:
+                if item != ",":
+                    sni += item
+            line[2] = sni
+            writer.writerow(line)
         else:
             writer.writerow(line)
     f1.close()
     f2.close()
+    os.system('cp ./Output_data/snie_s.csv ./Output_data/snie.csv')
 
 
 def snie_process_packets(MAX_PKT_COUNT, STO):
@@ -775,12 +780,16 @@ def snie_record_and_process_pkts(command):
     global itime
     MAX_PKT_COUNT = "NA" # "NA : no bound"
     is_ps_stop.clear()
-    if command == "S":
-        snie_sniff_packets(STO)
-    elif command == "A":
-        snie_process_packets(MAX_PKT_COUNT, STO)
-    elif command == "ALL":
-        snie_sniff_packets(STO)
-        snie_process_packets(MAX_PKT_COUNT, STO)
-    else:
-        print("Unknown command : Use S/A/ALL")
+    print("[+] Analyser started ")
+    snie_process_packets(MAX_PKT_COUNT, STO)
+    print("[+] Analyser finished ")
+    print("[+] Analyser output stored in ./Output_data/snie.csv")
+    #    if command == "S":
+#        snie_sniff_packets(STO)
+#    elif command == "A":
+#        snie_process_packets(MAX_PKT_COUNT, STO)
+#    elif command == "ALL":
+#        snie_sniff_packets(STO)
+#        snie_process_packets(MAX_PKT_COUNT, STO)
+#    else:
+#        print("Unknown command : Use S/A/ALL")

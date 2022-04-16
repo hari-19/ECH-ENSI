@@ -10,6 +10,7 @@ os.environ['MPLCONFIGDIR'] = "./mplotlibtemp"
 
 
 def snie_main (command):
+    print("[+] Initialising environment")
     if not os.path.exists("./Output_data"):
         os.system('mkdir Output_data')
     if not os.path.exists("Output_data/results"):
@@ -26,10 +27,11 @@ def snie_main (command):
 
 if __name__ == '__main__':
     import sys
-    alen = len(sys.argv)
-    if 2 != alen:
-        print("Usage : python snie_main.py <S/P/ALL>")
-        sys.exit()
-    else:
-        command = sys.argv[1]
+    # alen = len(sys.argv)
+    # if 2 != alen:
+    #    print("Usage : python snie_main.py <S/P/ALL>")
+    #    sys.exit()
+    # else:
+    #    command = sys.argv[1]
+    command = "A"
     snie_main(command)

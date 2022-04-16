@@ -1,7 +1,11 @@
 
-def sne_quic_extract_pkt_info(packet, layer):
-    llayer = dir(layer)
+def sne_quic_extract_pkt_info(packet):
+    llayer = dir(packet['quic'])
+    # print("QUIC layer info : " + str(llayer))
     sni = 'NA'
+    tls_version = 'NA'
+    qlen = int(packet['quic'].packet_length)
+    tstamp = float(packet.sniff_timestamp)
     if 'ip' in packet:
         saddr = packet['ip'].src
         daddr = packet['ip'].dst
@@ -12,13 +16,16 @@ def sne_quic_extract_pkt_info(packet, layer):
         dport = packet['udp'].dstport
     else:
         sport = dport = 0
-    if 'tls_handshake_extensions_server_name_list_len' in llayer:
-        # Assumes single SNI in the list
-        if 'tls_handshake_extensions_server_name' in llayer:
-            sni = layer.tls_handshake_extensions_server_name
-    else:
-        print("SNI not present")
-    return saddr, daddr, sport, dport, sni
+
+    # print("QUIC packet : " + str(dir(packet['quic'])))
+    if "tls_handshake_version" in llayer:
+        tls_version = packet['quic'].tls_handshake_version
+    if 'tls_handshake_extensions_server_name' in llayer:
+        sni = packet['quic'].tls_handshake_extensions_server_name
+    # else:
+    #    print("SNI not present")
+    # print("QUIC SNI = " + str(sni))
+    return saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version
 
 
 def snie_quic(pcap_file, lfile):
