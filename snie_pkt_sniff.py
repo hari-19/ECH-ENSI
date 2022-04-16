@@ -706,7 +706,7 @@ def snie_process_raw_packets(reader, dreader, raw_pkts, MAX_PKT_COUNT):
 
 
 def snie_sanitize_data():
-    print("Sanitising data")
+    #print("Sanitising data")
     if os.path.exists('./Output_data/snie_s.csv'):
         os.system('rm -rf ./Output_data/snie_s.csv')
         os.system('touch ./Output_data/snie_s.csv')
