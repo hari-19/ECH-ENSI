@@ -35,7 +35,8 @@ csv_header = {"Time": "Time", "TLS version": "TLS version", "SNI": "SNI", "Sourc
               "Downloaded Data size (bytes)": "Downloaded Data size (bytes)",
               "TLS session duration (s)": "TLS session duration (s)",
               "Foreground/Background": "Foreground/Background",
-              "SSL Certificate information": "SSL Certificate information"}
+              "SSL Certificate information": "SSL Certificate information",
+              }
 
 header_index = {
     "Time": 0,
@@ -52,6 +53,8 @@ header_index = {
     "SSL Certificate information": 11
 }
 
+flow_itr = 0
+flow_map = {}
 
 processed_data = {}
 
@@ -609,6 +612,37 @@ def write_to_csv(data_list, fname):
                 continue
             writer.writerow(line)
 
+
+def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
+    global flow_itr
+
+    if protocol not in ["TCP", "UDP", "QUIC"]:
+        return "NA"
+    if ip_src > ip_dst:
+        ip_src, ip_dst = ip_dst, ip_src
+    
+    if port_src > port_dst:
+        port_src, port_dst = port_dst, port_src
+
+    flow_id = flow_map.get((protocol, ip_src, ip_dst, port_src, port_dst), None)
+
+    if(flow_id):
+        return flow_id
+    
+    flow_id = flow_itr
+    flow_map[(protocol, ip_src, ip_dst, port_src, port_dst)] = flow_id
+
+    flow_itr += 1
+
+    return flow_id
+
+def add_flow_id(data_list):
+    for line in data_list:
+        if line == []:
+            continue
+        line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
+
+
 def snie_process_packets(MAX_PKT_COUNT, STO, fname):
 
     # Just for making sure we have permission
@@ -633,9 +667,40 @@ def snie_process_packets(MAX_PKT_COUNT, STO, fname):
 
     # pprint(processed_data)
     snie_sanitize_data_list(processed_data_list)
+    add_flow_id(processed_data_list)
 
     write_to_csv(processed_data_list, './Output_data/sni.csv')
     return
+
+def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
+    global flow_itr
+
+    if protocol not in ["TCP", "UDP", "QUIC"]:
+        return "NA"
+    if ip_src > ip_dst:
+        ip_src, ip_dst = ip_dst, ip_src
+    
+    if port_src > port_dst:
+        port_src, port_dst = port_dst, port_src
+
+    flow_id = flow_map.get((protocol, ip_src, ip_dst, port_src, port_dst), None)
+
+    if(flow_id):
+        return flow_id
+    
+    flow_id = flow_itr
+    flow_map[(protocol, ip_src, ip_dst, port_src, port_dst)] = flow_id
+
+    flow_itr += 1
+
+    return flow_id
+
+def add_flow_id(data_list):
+    header_index["Flow ID"] = len(header_index)
+    for line in data_list:
+        if line == []:
+            continue
+        line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
 
 def snie_record_and_process_pkts(command, fname, STO=30):
     global itime
