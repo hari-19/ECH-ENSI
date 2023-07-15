@@ -329,7 +329,6 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_vers
         processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)] = sni_info
 
 def handle_packet(packet):
-    
     global total_count
     global tcp_count
     global udp_count
@@ -512,14 +511,20 @@ def update_tls(data_list):
 
 
 count = 0
+verbose_sniff = False
 def prn_analyse_packet(packet):
     global count
     count += 1
-    print("Packet ", count , " : " + str(packet.summary()))
+    if verbose_sniff:
+        print("Packet ", count , " : " + str(packet.summary()))
     handle_packet(packet)
 
-def snie_sniff_and_analyse_packets(STO, fname, outputfname):
+def snie_sniff_and_analyse_packets(STO, fname, outputfname, verbose=False):
     global capture
+    global verbose_sniff
+    if verbose:
+        verbose_sniff = True
+
     if not os.path.exists('./Input_data'):
         os.system('mkdir Input_data')
     fname = "./Input_data/"+ fname
