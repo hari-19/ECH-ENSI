@@ -21,9 +21,11 @@ pkts = []
 itime = time.time()
 capture = sniff(count=1)
 is_ps_stop = Event()
+
 tcp_count = 0
 udp_count = 0
 quic_count = 0
+total_count = 0
 
 header = ["Time", "TLS version", "SNI", "Source IP address", "Destination IP address", "Source port",
           "Destination Port", "Protocol", "Downloaded Data size (bytes)", "TLS session duration (s)",
@@ -325,17 +327,14 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_vers
         sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len*8, tstamp, tls_version)
         processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)] = sni_info
 
-
-def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
-    sd_pkts = []
-
-    pkt_count = 0
+def handle_packet(packet):
+    
+    global total_count
     global tcp_count
     global udp_count
     global quic_count
-    # Filter TLS packets nd get SNI
-    for packet in raw_pkts:
-        if 'ip' in packet:
+
+    if 'ip' in packet:
             try:
                 if 'quic' in packet:  # QUIC packet
                     from snie_quic import sne_quic_extract_pkt_info
@@ -343,25 +342,41 @@ def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
                     snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
                     quic_count += 1
                 elif 'tcp' in packet:
-                    x = snie_handle_tcp(packet)
+                    snie_handle_tcp(packet)
                     tcp_count += 1
                 elif 'udp' in packet:  # UDP packet
-                    x = snie_handle_udp_packet(packet)
+                    snie_handle_udp_packet(packet)
                     udp_count += 1
                 else:
-                    x = snie_handle_other_packet(packet)
+                    snie_handle_other_packet(packet)
             except KeyboardInterrupt:
                 print("Execution interrupted")
                 exit(0)
-            pkt_count += 1
+            total_count += 1
             print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
-                  "  QUIC = " + str(quic_count) + "  Total = " + str(pkt_count), end = "\r")
+                  "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
+
+def snie_process_data_dict():
+    processed_data_list = []
+
+    for key in processed_data:
+        processed_data_list.append(processed_data[key])       
+    
+    # pprint(processed_data)
+    print()
+    snie_sanitize_data_list(processed_data_list)
+    add_flow_id(processed_data_list)
+    update_tls(processed_data_list)
+    write_to_csv(processed_data_list, './Output_data/sni.csv')
+
+
+def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
+    for packet in raw_pkts:
+        handle_packet(packet)
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
             break
-
-    # print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
-    return sd_pkts
-
+    
+    snie_process_data_dict()
 
 def snie_sanitize_data_list(data_list):
     print("[+] Sanitizing Data")
@@ -436,28 +451,16 @@ def snie_process_packets(MAX_PKT_COUNT, STO, fname):
     f1 = open('./Output_data/sni.csv', 'w', newline='')
     f1.close()
     
-    itr = 1
-    while itr == 1:
-        itr += 1
-        raw_pkts = snie_read_raw_pkts(STO, fname)
-        if raw_pkts is None:
-            print("Too few packets to sniff")
-            break
-        try:
-            snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT)
-        except (KeyboardInterrupt, SystemExit):
-            break
-    processed_data_list = []
 
-    for key in processed_data:
-        processed_data_list.append(processed_data[key])       
+    raw_pkts = snie_read_raw_pkts(STO, fname)
+    if raw_pkts is None:
+        print("Too few packets to sniff")
+    
+    try:
+        snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT)
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
-    # pprint(processed_data)
-    snie_sanitize_data_list(processed_data_list)
-    add_flow_id(processed_data_list)
-    update_tls(processed_data_list)
-
-    write_to_csv(processed_data_list, './Output_data/sni.csv')
     return
 
 def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
@@ -508,6 +511,9 @@ def update_tls(data_list):
         tls_info = tls_info_map.get(data[header_index["Flow ID"]], ("NA", "NA"))
         data[header_index["TLS version"]] = tls_info[0]
         data[header_index["SNI"]] = tls_info[1]
+
+
+
 
 
 
