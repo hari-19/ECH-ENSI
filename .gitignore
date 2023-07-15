@@ -3,3 +3,4 @@ Input_data/
 Output_data/
 *.pcap*
 *.txt
+venv/

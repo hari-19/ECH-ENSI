@@ -13,7 +13,6 @@ load_layer("tls")
 from scapy.layers.inet import IP, TCP
 import csv
 from rich.pretty import pprint
-STO = 30 # Sniffing period in Seconds
 
 pkt_count = 0
 pkts = []
@@ -329,7 +328,6 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_vers
         processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)] = sni_info
 
 def handle_packet(packet):
-    
     global total_count
     global tcp_count
     global udp_count
@@ -511,15 +509,16 @@ def update_tls(data_list):
         data[header_index["SNI"]] = tls_info[1]
 
 
-count = 0
+verbose_sniff = False
 def prn_analyse_packet(packet):
-    global count
-    count += 1
-    print("Packet ", count , " : " + str(packet.summary()))
     handle_packet(packet)
 
-def snie_sniff_and_analyse_packets(STO, fname, outputfname):
+def snie_sniff_and_analyse_packets(STO, fname, outputfname, verbose=False):
     global capture
+    global verbose_sniff
+    if verbose:
+        verbose_sniff = True
+
     if not os.path.exists('./Input_data'):
         os.system('mkdir Input_data')
     fname = "./Input_data/"+ fname
@@ -532,6 +531,15 @@ def snie_sniff_and_analyse_packets(STO, fname, outputfname):
     f1.close()
 
     print("[+] Sniffing packets for " + str(STO) + " seconds")
-    capture = sniff(stop_filter=is_ps_stop.is_set(), timeout=STO, prn=prn_analyse_packet)
-    wrpcap(fname, capture)
+
+    capture = pyshark.LiveCapture(output_file=fname, )
+
+    try:
+        capture.apply_on_packets(prn_analyse_packet, timeout=STO)
+    except TimeoutError:
+        pass
+
+    capture.clear()
+    capture.close()
+
     snie_process_data_dict(outputfname)
