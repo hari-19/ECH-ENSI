@@ -120,41 +120,22 @@ def snie_read_raw_pkts(STO, fname):
     print("[+] Reading done")
     return pkts
 
-TLS_VERSIONS_REVRRSE_MAP = {
-    # SSL
-    "SSL_2_0": 0x0002,
-    "SSL_3_0": 0x0300 ,
-    # TLS:
-    "TLS_1_0": 0x0301,
-    "TLS_1_1": 0x0302,
-    "TLS_1_2": 0x0303,
-    "TLS_1_3": 0x0304,
-    # DTLS
-    "PROTOCOL_DTLS_1_0_OPENSSL_PRE_0_9_8f": 0x0100,
-    "TLS_1_3_DRAFT_16": 0x7f10,
-    "TLS_1_3_DRAFT_18": 0x7f12,
-    "DTLS_1_0": 0xfeff,
-    "DTLS_1_1": 0xfefd,
-    # Misc
-    "Reserved (GREASE)": 0x0eaea,
-}
-
-TLS_VERSIONS = {
-    # SSL
-    "0x0002": "SSL_2_0",
-    "0x0300": "SSL_3_0",
-    # TLS:
-    "0x0301": "TLS_1_0",
-    "0x0302": "TLS_1_1",
-    "0x0303": "TLS_1_2",
-    "0x0304": "TLS_1_3",
-    # DTLS
-    "0x0100": "PROTOCOL_DTLS_1_0_OPENSSL_PRE_0_9_8f",
-    "0x7f10": "TLS_1_3_DRAFT_16",
-    "0x7f12": "TLS_1_3_DRAFT_18",
-    "0xfeff": "DTLS_1_0",
-    "0xfefd": "DTLS_1_1",
-}
+# TLS_VERSIONS = {
+#     # SSL
+#     "0x0002": "SSL_2_0",
+#     "0x0300": "SSL_3_0",
+#     # TLS:
+#     "0x0301": "TLS_1_0",
+#     "0x0302": "TLS_1_1",
+#     "0x0303": "TLS_1_2",
+#     "0x0304": "TLS_1_3",
+#     # DTLS
+#     "0x0100": "PROTOCOL_DTLS_1_0_OPENSSL_PRE_0_9_8f",
+#     "0x7f10": "TLS_1_3_DRAFT_16",
+#     "0x7f12": "TLS_1_3_DRAFT_18",
+#     "0xfeff": "DTLS_1_0",
+#     "0xfefd": "DTLS_1_1",
+# }
 
 
 def snie_get_tr_proto(ip):
@@ -245,7 +226,7 @@ def snie_update_datasize(packet):
 def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
     sni_info = []
     sni_info.append(str(tstamp))
-    sni_info.append(str(TLS_VERSIONS.get(tls_version, "NA")))
+    sni_info.append(tls_version)
     sni_info.append(str(sni))
     sni_info.append(str(saddr))
     sni_info.append(str(daddr))
@@ -360,7 +341,8 @@ def snie_fill_ch_info(fp, tls_msg, sni_info):
     #print("Printing TLS SNI info" + "\n")
     #print(tls_msg)
     #exit(0)
-    ver = TLS_VERSIONS.get(tls_msg.version, "NA")
+
+    ver = tls_msg.version
     sni_info[1] = str(ver)
     snil = ["NA"]
     for sniinfo in tls_msg['TLS_Ext_ServerName'].servernames:
@@ -388,11 +370,15 @@ def snie_get_tls_proto_info(packet, sni_info):
     from pyshark.packet.fields import LayerField
     tls_extension_version = "0x0a"
     tls_version = "0x0a"
+    tls_handshake_type = None
     if int(packet['tcp'].dstport) == 443 or int(packet['tcp'].srcport) == 443:  # Encrypted TCP packet
         if 'tls' in packet:
             for layer in packet:
                 if layer.layer_name == "tls":
                     llayer = dir(layer)
+                    if "handshake_type" in llayer:
+                        tls_handshake_type = layer.handshake_type
+
                     if "handshake_extensions_supported_version" in llayer:
                         tls_extension_version = layer.handshake_extensions_supported_version
                     if "record_version" in llayer:
@@ -401,7 +387,7 @@ def snie_get_tls_proto_info(packet, sni_info):
                         sni = layer.handshake_extensions_server_name.showname.replace("Server Name: ", "")
                         sni_info[2] = sni
                     final_version = max(int(str(tls_extension_version),16),int(str(tls_version),16))
-                    if final_version != 0x0a:
+                    if final_version != 0x0a and tls_handshake_type == "2":
                         final_version = str(hex(final_version))
                         final_version = f"{final_version[:2]}0{final_version[2:]}"
                         sni_info[1] = final_version
@@ -410,7 +396,7 @@ def snie_get_tls_proto_info(packet, sni_info):
 
 def snie_update_tls_info(row, sni_info):
     if "NA" != sni_info[1]:
-        row["TLS version"].add(sni_info[1])
+        row["TLS version"] = sni_info[1]
     
     for sni in sni_info[2]:
         if "NA" in row["SNI"]:
@@ -446,7 +432,6 @@ def snie_handle_tcp(packet):
     else:
         sni_info = snie_get_tcp_prot_info(packet)
         sni_info = snie_get_tls_proto_info(packet, sni_info)
-        sni_info[1] = set([sni_info[1]])
         processed_data[generate_tcp_dict_key(packet)] = sni_info
 
 def snie_get_proto_info(sni_info, packet):
@@ -466,7 +451,7 @@ def snie_update_ch_info(fp, tls_msg, packet):
     # print("ClientHello message detected")
     sni_info = []
     sni_info.append(str(packet.time))
-    ver = TLS_VERSIONS.get(tls_msg.version, "NA")
+    ver = tls_msg.version
     sni_info.append(ver)
     for sniinfo in tls_msg['TLS_Ext_ServerName'].servernames:
         sni = ""
@@ -668,12 +653,14 @@ def snie_process_packets(MAX_PKT_COUNT, STO, fname):
     # pprint(processed_data)
     snie_sanitize_data_list(processed_data_list)
     add_flow_id(processed_data_list)
+    update_tls(processed_data_list)
 
     write_to_csv(processed_data_list, './Output_data/sni.csv')
     return
 
 def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
     global flow_itr
+    global flow_map
 
     if protocol not in ["TCP", "UDP", "QUIC"]:
         return "NA"
@@ -701,6 +688,26 @@ def add_flow_id(data_list):
         if line == []:
             continue
         line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
+
+def update_tls(data_list):
+    tls_info_map = {}
+
+    for data in data_list:
+        tls_info = tls_info_map.get(data[header_index["Flow ID"]], ("NA", "NA"))
+        if data[header_index["TLS version"]] != "NA":
+            tls_info = (data[header_index["TLS version"]], tls_info[1])
+        
+        if data[header_index["SNI"]] != "NA":
+            tls_info = (tls_info[0], data[header_index["SNI"]])
+        
+        tls_info_map[data[header_index["Flow ID"]]] = tls_info
+    
+    for data in data_list:
+        tls_info = tls_info_map.get(data[header_index["Flow ID"]], ("NA", "NA"))
+        data[header_index["TLS version"]] = tls_info[0]
+        data[header_index["SNI"]] = tls_info[1]
+
+
 
 def snie_record_and_process_pkts(command, fname, STO=30):
     global itime
