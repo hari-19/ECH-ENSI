@@ -91,17 +91,18 @@ def generate_other_dict_key(packet):
 data_size = {}
 
 
-def snie_sniff_packets(STO):
+def snie_sniff_packets(STO, fname):
     global capture
-    print("Packet sniffer started...")
     if not os.path.exists('./Input_data'):
         os.system('mkdir Input_data')
-    fname = "./Input_data/pkts_" + str(STO) + ".pcap"
+    fname = "./Input_data/"+ fname
     if not os.path.exists(fname):
         comm = 'echo > ' + fname
         os.system(comm)
+    print("[+] Sniffing packets for " + str(STO) + " seconds")
     capture = sniff(stop_filter=is_ps_stop.is_set(), timeout=STO)
     wrpcap(fname, capture)
+
 
 
 def snie_read_raw_pkts(STO, fname):
@@ -356,27 +357,26 @@ def handle_packet(packet):
             print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
                   "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
 
-def snie_process_data_dict():
+def snie_process_data_dict(outputfname):
     processed_data_list = []
 
     for key in processed_data:
         processed_data_list.append(processed_data[key])       
     
-    # pprint(processed_data)
     print()
     snie_sanitize_data_list(processed_data_list)
     add_flow_id(processed_data_list)
     update_tls(processed_data_list)
-    write_to_csv(processed_data_list, './Output_data/sni.csv')
+    write_to_csv(processed_data_list, outputfname)
 
 
-def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
+def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
     for packet in raw_pkts:
         handle_packet(packet)
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
             break
     
-    snie_process_data_dict()
+    snie_process_data_dict(outputfname)
 
 def snie_sanitize_data_list(data_list):
     print("[+] Sanitizing Data")
@@ -405,7 +405,7 @@ def snie_sanitize_data_list(data_list):
 
 
 def write_to_csv(data_list, fname):
-    print("[+] Writing to csv file")
+    print("[+] Writing to", fname)
     with open(fname, 'w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(header_index.keys())
@@ -445,19 +445,17 @@ def add_flow_id(data_list):
         line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
 
 
-def snie_process_packets(MAX_PKT_COUNT, STO, fname):
-
+def snie_process_packets(MAX_PKT_COUNT, inputfname, outputfname):
     # Just for making sure we have permission
-    f1 = open('./Output_data/sni.csv', 'w', newline='')
+    f1 = open(outputfname, 'w', newline='')
     f1.close()
     
-
-    raw_pkts = snie_read_raw_pkts(STO, fname)
+    raw_pkts = snie_read_raw_pkts(STO, inputfname)
     if raw_pkts is None:
         print("Too few packets to sniff")
     
     try:
-        snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT)
+        snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT)
     except (KeyboardInterrupt, SystemExit):
         pass
 
@@ -513,17 +511,27 @@ def update_tls(data_list):
         data[header_index["SNI"]] = tls_info[1]
 
 
+count = 0
+def prn_analyse_packet(packet):
+    global count
+    count += 1
+    print("Packet ", count , " : " + str(packet.summary()))
+    handle_packet(packet)
 
+def snie_sniff_and_analyse_packets(STO, fname, outputfname):
+    global capture
+    if not os.path.exists('./Input_data'):
+        os.system('mkdir Input_data')
+    fname = "./Input_data/"+ fname
+    if not os.path.exists(fname):
+        comm = 'echo > ' + fname
+        os.system(comm)
+    
+    # Just for making sure we have permission
+    f1 = open(outputfname, 'w', newline='')
+    f1.close()
 
-
-
-def snie_record_and_process_pkts(command, fname, STO=30):
-    global itime
-    MAX_PKT_COUNT = "NA" # "NA : no bound"
-    if fname != None:
-        snie_process_packets(MAX_PKT_COUNT, STO, fname)
-    elif command == "ALL":
-        snie_sniff_packets(STO)
-        snie_process_packets(MAX_PKT_COUNT, STO)
-    else:
-      print("Unknown command : Use S/A/ALL")
+    print("[+] Sniffing packets for " + str(STO) + " seconds")
+    capture = sniff(stop_filter=is_ps_stop.is_set(), timeout=STO, prn=prn_analyse_packet)
+    wrpcap(fname, capture)
+    snie_process_data_dict(outputfname)
