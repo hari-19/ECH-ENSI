@@ -8,6 +8,7 @@ from scapy.all import *
 import pyshark
 import warnings
 warnings.filterwarnings(action= 'ignore')
+import multiprocessing
 
 load_layer("tls")
 from scapy.layers.inet import IP, TCP
@@ -193,7 +194,6 @@ def snie_handle_udp_packet(packet):
 
 def snie_get_other_prot_info(packet):
     sni_info = []
-    print("Other packet : " + str(dir(packet['ip'])))
     sni_info.append(str(packet.sniff_timestamp))
     sni_info.append("NA")
     sni_info.append("NA")
@@ -352,8 +352,8 @@ def handle_packet(packet):
                 print("Execution interrupted")
                 exit(0)
             total_count += 1
-            print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
-                  "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
+            # print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
+                #   "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
 
 def snie_process_data_dict(outputfname):
     processed_data_list = []
@@ -509,31 +509,22 @@ def update_tls(data_list):
         data[header_index["SNI"]] = tls_info[1]
 
 
-count = 0
-def prn_analyse_packet(packet):
-    handle_packet(packet)
 
-def snie_sniff_and_analyse_packets(STO, fname, outputfname, verbose=False):
+def sniff_packets_live(STO, fname, sender):
+    def prn_analyse_packet(packet):
+        sender.send(packet)
+
     global capture
-    global verbose_sniff
-    if verbose:
-        verbose_sniff = True
-
     if not os.path.exists('./Input_data'):
         os.system('mkdir Input_data')
     fname = "./Input_data/"+ fname
     if not os.path.exists(fname):
         comm = 'echo > ' + fname
         os.system(comm)
-    
-    # Just for making sure we have permission
-    f1 = open(outputfname, 'w', newline='')
-    f1.close()
-
     print("[+] Sniffing packets for " + str(STO) + " seconds")
 
     capture = pyshark.LiveCapture(output_file=fname, )
-
+    
     try:
         capture.apply_on_packets(prn_analyse_packet, timeout=STO)
     except TimeoutError:
@@ -541,5 +532,32 @@ def snie_sniff_and_analyse_packets(STO, fname, outputfname, verbose=False):
 
     capture.clear()
     capture.close()
+    print("[+] Sniffing done")
+    sender.send("STOP")
 
+def process_live_packets(outputfname, receiver):
+    while True:
+        packet = receiver.recv()
+        
+        if packet == "STOP":
+            break
+
+        handle_packet(packet)
+
+    print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
+                  "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
     snie_process_data_dict(outputfname)
+
+def snie_sniff_and_analyse_packets(STO, fname, outputfname, verbose=False):
+    global capture
+
+    sender, receiver = multiprocessing.Pipe()
+
+    p1 = multiprocessing.Process(target=sniff_packets_live, args=(STO, fname, sender))
+    p2 = multiprocessing.Process(target=process_live_packets, args=(outputfname, receiver))
+
+    p1.start()
+    p2.start()
+
+    p1.join()
+    p2.join()

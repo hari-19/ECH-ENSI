@@ -8,9 +8,13 @@ import os
 from snie_pkt_sniff import snie_sniff_and_analyse_packets
 
 def open_browser(url, timeout):
+    current_unix_time = int(time.time())
+    target_unix_time = current_unix_time + timeout
     driver = webdriver.Firefox()
     driver.get(url)
-    time.sleep(timeout - 10)
+    sleep_time = target_unix_time - int(time.time())
+    if sleep_time > 0:
+        time.sleep(sleep_time)
     driver.close()
     driver.quit()
 
@@ -61,8 +65,9 @@ if __name__ == "__main__":
     t = int(args.time)
 
     for url in urls:
-        print(f"[+] Processing {url}")
+        print(f"\n[+] Processing {url}")
         open_capture_and_analyse(url, t)
+        time.sleep(1)
     
     print("[+] Done")
             
