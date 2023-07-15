@@ -46,10 +46,10 @@ if __name__ == '__main__':
             if not args.outputfile:
                 print("[+] Default Output file name : sni.csv")
                 outputfile = "sni.csv"
-                exit(0)
 
             outputfile = "./Output_data/" + outputfile
             inputfile = "./Input_data/" + args.snifffile
+            snie_process_packets("NA", inputfile, outputfile)
         case "s":
             if args.time == None:
                 print("[-] Time not provided")
@@ -74,7 +74,6 @@ if __name__ == '__main__':
             if not args.outputfile:
                 print("[+] Default Output file name : sni.csv")
                 outputfile = "sni.csv"
-                exit(0)
 
             outputfile = "./Output_data/" + outputfile
 

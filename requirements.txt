@@ -1,0 +1,13 @@
+appdirs==1.4.4
+cffi==1.15.1
+cryptography==41.0.2
+lxml==4.9.3
+markdown-it-py==3.0.0
+mdurl==0.1.2
+packaging==23.1
+pycparser==2.21
+Pygments==2.15.1
+pyshark==0.6
+rich==13.4.2
+scapy==2.5.0
+termcolor==2.3.0
