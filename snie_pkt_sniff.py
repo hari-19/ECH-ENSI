@@ -274,7 +274,7 @@ def snie_get_udp_prot_info(packet):
     sni_info.append(str(0))
     return sni_info
 
-def snie_update_udp_data(dreader, packet):
+def snie_handle_udp_packet(packet):
     if not 'udp' in packet:
         return
     
@@ -290,9 +290,7 @@ def snie_update_udp_data(dreader, packet):
         processed_data[generate_udp_dict_key(packet)] = sni_info
 
 
-def snie_handle_udp_packet(fp, dreader, packet):
-    snie_update_udp_data(dreader, packet)
-    return packet
+
 
 
 def snie_get_other_prot_info(packet):
@@ -313,7 +311,7 @@ def snie_get_other_prot_info(packet):
     sni_info.append(str(0))
     return sni_info
 
-def snie_update_other_data(dreader, packet):
+def snie_handle_other_packet(packet):
     if generate_other_dict_key(packet) in processed_data.keys():
         row = generate_row_dict(processed_data[generate_other_dict_key(packet)])
         osize = int(row["Downloaded Data size (bytes)"])
@@ -325,9 +323,7 @@ def snie_update_other_data(dreader, packet):
         sni_info = snie_get_other_prot_info(packet)
         processed_data[generate_other_dict_key(packet)] = sni_info
 
-def snie_handle_other_packet(fp, dreader, packet):
-    snie_update_other_data(dreader, packet)
-    return packet
+
 
 
 def snie_get_tcp_prot_info(packet):
@@ -385,7 +381,7 @@ def snie_fill_ch_info(fp, tls_msg, sni_info):
     return sni_info
 
 
-def snie_get_tls_proto_info(fp, packet, sni_info):
+def snie_get_tls_proto_info(packet, sni_info):
     from pyshark.packet.fields import LayerField
     tls_extension_version = "0x0a"
     tls_version = "0x0a"
@@ -423,7 +419,7 @@ def snie_update_tls_info(row, sni_info):
     return row
 
 
-def snie_update_tcp_data(fp, packet):
+def snie_handle_tcp(packet):
     if not 'tcp' in packet:
         return
     
@@ -441,20 +437,14 @@ def snie_update_tcp_data(fp, packet):
         row["TLS session duration (s)"] = tdiff
         # Update TLS duration
         sni_info = ["NA", "NA", ["NA"]]
-        sni_info = snie_get_tls_proto_info(fp, packet, sni_info)
+        sni_info = snie_get_tls_proto_info(packet, sni_info)
         row = snie_update_tls_info(row, sni_info)
         processed_data[generate_tcp_dict_key(packet)] = generate_list_from_dict(row)
     else:
         sni_info = snie_get_tcp_prot_info(packet)
-        sni_info = snie_get_tls_proto_info(fp, packet, sni_info)
+        sni_info = snie_get_tls_proto_info(packet, sni_info)
         sni_info[1] = set([sni_info[1]])
         processed_data[generate_tcp_dict_key(packet)] = sni_info
-
-
-def snie_handle_tcp(fp, packet):
-    snie_update_tcp_data(fp, packet)
-    return packet
-
 
 def snie_get_proto_info(sni_info, packet):
     sni_info.append(str(packet['ip'].src))
@@ -548,7 +538,7 @@ def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_vers
 
 def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
     sd_pkts = []
-    fp = open('./Output_data/sni.txt', 'a', newline='')
+
     pkt_count = 0
     global tcp_count
     global udp_count
@@ -563,13 +553,13 @@ def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
                     snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
                     quic_count += 1
                 elif 'tcp' in packet:
-                    x = snie_handle_tcp(fp, packet)
+                    x = snie_handle_tcp(packet)
                     tcp_count += 1
                 elif 'udp' in packet:  # UDP packet
-                    x = snie_handle_udp_packet(fp, None, packet)
+                    x = snie_handle_udp_packet(packet)
                     udp_count += 1
                 else:
-                    x = snie_handle_other_packet(fp, None, packet)
+                    x = snie_handle_other_packet(packet)
             except KeyboardInterrupt:
                 print("Execution interrupted")
                 exit(0)
@@ -578,7 +568,7 @@ def snie_process_raw_packets(raw_pkts, MAX_PKT_COUNT):
                   "  QUIC = " + str(quic_count) + "  Total = " + str(pkt_count), end = "\r")
         if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
             break
-    fp.close()
+
     # print("\nTCP : " + str(tcp_count) + "  UDP : " + str(udp_count) + "\n")
     return sd_pkts
 
