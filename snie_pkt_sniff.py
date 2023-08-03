@@ -112,7 +112,7 @@ def generate_tcp_dict_key(packet):
     return get_flow("TCP", str(packet['ip'].src), str(packet['ip'].dst), str(packet['tcp'].srcport), str(packet['tcp'].dstport))
 
 def generate_udp_dict_key(packet):
-    return ("UDP", str(packet['ip'].src), str(packet['ip'].dst), str(packet['udp'].srcport), str(packet['udp'].dstport))
+    return get_flow("UDP", str(packet['ip'].src), str(packet['ip'].dst), str(packet['udp'].srcport), str(packet['udp'].dstport))
 
 def generate_quic_dict_key(saddr, daddr, sport, dport):
     return get_flow("QUIC", str(saddr), str(daddr), str(sport), str(dport))
@@ -157,46 +157,55 @@ def snie_get_tr_proto(ip):
         return str(ip)
 
 
-def snie_get_udppayloadlen(packet):
-    t_len = int(packet['udp'].length)
-    return t_len
 
 
 def snie_get_otherpayloadlen(packet):
     t_len = int(0)
     return t_len
 
-def snie_get_udp_prot_info(packet):
-    sni_info = []
-    sni_info.append(str(packet.sniff_timestamp))
-    sni_info.append("NA")
-    sni_info.append("NA")
-    sni_info.append(str(packet['ip'].src))
-    sni_info.append(str(packet['ip'].dst))
-    sni_info.append(str(packet['udp'].srcport))
-    sni_info.append(str(packet['udp'].dstport))
-    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
-    psize = snie_get_udppayloadlen(packet)
-    sni_info.append(str(psize))
-    sni_info.append("NA")
-    sni_info.append(str(0))
-    sni_info.append(str(0))
-    return sni_info
 
 def snie_handle_udp_packet(packet):
     if not 'udp' in packet:
         return
-    
+    key, dir = generate_udp_dict_key(packet)
     if generate_udp_dict_key(packet) in processed_data.keys():
-        row = generate_row_dict(processed_data[generate_udp_dict_key(packet)])
-        osize = int(row["Downloaded Data size (bytes)"])
-        psize = snie_get_udppayloadlen(packet)
-        dsize = osize + psize
-        row['Downloaded Data size (bytes)'] = dsize
-        processed_data[generate_udp_dict_key(packet)] = generate_list_from_dict(row)
+        row = processed_data[key]
     else:
-        sni_info = snie_get_udp_prot_info(packet)
-        processed_data[generate_udp_dict_key(packet)] = sni_info
+        if dir == 0:
+            src_ip, src_port = str(packet['ip'].src), str(packet['udp'].srcport)
+            dst_ip, dst_port = str(packet['ip'].dst), str(packet['udp'].dstport)
+        else:
+            src_ip, src_port = str(packet['ip'].dst), str(packet['udp'].dstport)
+            dst_ip, dst_port = str(packet['ip'].src), str(packet['udp'].srcport)
+
+        row = {
+            "Initial Time": str(packet.sniff_timestamp),
+            "TLS version": "NA",
+            "SNI": "NA",
+            "Source IP address": src_ip,
+            "Destination IP address": dst_ip,
+            "Source port": src_port,
+            "Destination Port": dst_port,
+            "Protocol": snie_get_tr_proto(packet['ip'].proto),
+            "Packet length (Tx)": [],
+            "Packet length (Rx)": [],
+            "Packet length (All)": [],
+            "Time (Tx)": [],
+            "Time (Rx)": [],
+            "Time (All)": []
+        }
+
+    psize = int(packet['udp'].length)
+    if dir == 0:
+        row['Packet length (Tx)'].append(psize)
+        row["Time (Tx)"].append(packet.sniff_timestamp)
+    else:
+        row['Packet length (Rx)'].append(psize)
+        row["Time (Rx)"].append(packet.sniff_timestamp)
+    
+    row['Packet length (All)'].append(psize)
+    row["Time (All)"].append(packet.sniff_timestamp)    
+    processed_data[key] = row
 
 
 def snie_get_other_prot_info(packet):
@@ -365,6 +374,7 @@ def handle_packet(packet):
     if 'ip' in packet:
             try:
                 if 'quic' in packet:  # QUIC packet
+                    return
                     from snie_quic import sne_quic_extract_pkt_info
                     saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version = sne_quic_extract_pkt_info(packet)
                     snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
@@ -374,7 +384,6 @@ def handle_packet(packet):
                     snie_handle_tcp(packet)
                     tcp_count += 1
                 elif 'udp' in packet:  # UDP packet
-                    return
                     snie_handle_udp_packet(packet)
                     udp_count += 1
                 else:
