@@ -72,30 +72,13 @@ combined_header_index = {
     "Downloaded Data size (bytes) Total": 11,
 }
 
-flow_itr = 0
-flow_map = {}
-
 processed_data = {}
-
-def generate_row_dict(processed_packet_list):
-    row_dict = {}
-    for key in header_index.keys():
-        row_dict[key] = processed_packet_list[header_index[key]]
-
-    return row_dict
-
-def generate_list_from_dict(processed_packet_dict):
-    row_list = []
-    for key in header_index.keys():
-        row_list.append(processed_packet_dict[key])
-
-    return row_list
 
 def get_flow(protocol, ip_src, ip_dst, port_src, port_dst):
     dir = 0
 
-    if protocol not in ["TCP", "UDP", "QUIC"]:
-        return "NA", dir
+    # if protocol not in ["TCP", "UDP", "QUIC"]:
+    #     return "NA", dir
     
     if ip_src > ip_dst:
         ip_src, ip_dst = ip_dst, ip_src
@@ -118,11 +101,9 @@ def generate_quic_dict_key(saddr, daddr, sport, dport):
     return get_flow("QUIC", str(saddr), str(daddr), str(sport), str(dport))
 
 def generate_other_dict_key(packet):
-    return (str(packet['ip'].proto), str(packet['ip'].src), str(packet['ip'].dst))
+    # return (str(packet['ip'].proto), str(packet['ip'].src), str(packet['ip'].dst))
+    return get_flow(str(packet['ip'].proto), str(packet['ip'].src), str(packet['ip'].dst), str(packet['ip'].src_host), str(packet['ip'].dst_host))
     
-
-data_size = {}
-
 
 def snie_sniff_packets(STO, fname):
     global capture
@@ -155,13 +136,6 @@ def snie_get_tr_proto(ip):
         return "UDP"
     else:
         return str(ip)
-
-
-
-
-def snie_get_otherpayloadlen(packet):
-    t_len = int(0)
-    return t_len
 
 
 def snie_handle_udp_packet(packet):
@@ -208,34 +182,45 @@ def snie_handle_udp_packet(packet):
     processed_data[key] = row
 
 
-def snie_get_other_prot_info(packet):
-    sni_info = []
-    sni_info.append(str(packet.sniff_timestamp))
-    sni_info.append("NA")
-    sni_info.append("NA")
-    sni_info.append(str(packet['ip'].src))
-    sni_info.append(str(packet['ip'].dst))
-    sni_info.append(str(packet['ip'].src_host))
-    sni_info.append(str(packet['ip'].dst_host))
-    sni_info.append(snie_get_tr_proto(packet['ip'].proto))
-    psize = 0
-    sni_info.append(str(psize))
-    sni_info.append("NA")
-    sni_info.append(str(0))
-    sni_info.append(str(0))
-    return sni_info
-
 def snie_handle_other_packet(packet):
-    if generate_other_dict_key(packet) in processed_data.keys():
-        row = generate_row_dict(processed_data[generate_other_dict_key(packet)])
-        osize = int(row["Downloaded Data size (bytes)"])
-        psize = snie_get_otherpayloadlen(packet)
-        dsize = osize + psize
-        row['Downloaded Data size (bytes)'] = dsize
-        processed_data[generate_other_dict_key(packet)] = generate_list_from_dict(row)
+    key, dir = generate_other_dict_key(packet)
+    if key in processed_data.keys():
+        row = processed_data[key]
     else:
-        sni_info = snie_get_other_prot_info(packet)
-        processed_data[generate_other_dict_key(packet)] = sni_info
+        if dir == 0:
+            src_ip, src_port = str(packet['ip'].src), str(packet['ip'].src_host)
+            dst_ip, dst_port = str(packet['ip'].dst), str(packet['ip'].dst_host)
+        else:
+            src_ip, src_port = str(packet['ip'].dst), str(packet['ip'].dst_host)
+            dst_ip, dst_port = str(packet['ip'].src), str(packet['ip'].src_host)
+
+        row = {
+            "Initial Time": str(packet.sniff_timestamp),
+            "TLS version": "NA",
+            "SNI": "NA",
+            "Source IP address": src_ip,
+            "Destination IP address": dst_ip,
+            "Source port": src_port,
+            "Destination Port": dst_port,
+            "Protocol": snie_get_tr_proto(packet['ip'].proto),
+            "Packet length (Tx)": [],
+            "Packet length (Rx)": [],
+            "Packet length (All)": [],
+            "Time (Tx)": [],
+            "Time (Rx)": [],
+            "Time (All)": []
+        }
+    psize = 0
+    if dir == 0:
+        row['Packet length (Tx)'].append(psize)
+        row["Time (Tx)"].append(packet.sniff_timestamp)
+    else:
+        row['Packet length (Rx)'].append(psize)
+        row["Time (Rx)"].append(packet.sniff_timestamp)
+    row['Packet length (All)'].append(psize)
+    row["Time (All)"].append(packet.sniff_timestamp)
+
+    processed_data[key] = row
 
 
 def snie_get_tls_proto_info(packet):
@@ -295,10 +280,19 @@ def snie_handle_tcp(packet):
             src_ip, src_port = str(packet['ip'].dst), str(packet['tcp'].dstport)
             dst_ip, dst_port = str(packet['ip'].src), str(packet['tcp'].srcport)
 
+        sni_field = "NA"
+
+        for sni in sni_info[1]:
+            if "NA" in sni_field:
+                sni_field = str(sni)
+            else:
+                if sni != "NA":
+                    sni_field += " , " + str(sni)
+
         row = {
             "Initial Time": str(packet.sniff_timestamp),
             "TLS version": sni_info[0],
-            "SNI": sni_info[1],
+            "SNI": sni,
             "Source IP address": src_ip,
             "Destination IP address": dst_ip,
             "Source port": src_port,
@@ -374,27 +368,24 @@ def handle_packet(packet):
     if 'ip' in packet:
             try:
                 if 'quic' in packet:  # QUIC packet
-                    return
                     from snie_quic import sne_quic_extract_pkt_info
                     saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version = sne_quic_extract_pkt_info(packet)
                     snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
                     quic_count += 1
                 elif 'tcp' in packet:
-                    return
                     snie_handle_tcp(packet)
                     tcp_count += 1
                 elif 'udp' in packet:  # UDP packet
                     snie_handle_udp_packet(packet)
                     udp_count += 1
                 else:
-                    return
                     snie_handle_other_packet(packet)
             except KeyboardInterrupt:
                 print("Execution interrupted")
                 exit(0)
             total_count += 1
-            print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
-                  "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
+            # print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
+            #       "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
 
 def snie_process_data_dict(outputfname):
     # processed_data_list = []
@@ -402,10 +393,9 @@ def snie_process_data_dict(outputfname):
     # for key in processed_data:
     #     processed_data_list.append(processed_data[key])       
     
+    snie_sanitize_data()
     pprint(processed_data)
-    # snie_sanitize_data_list(processed_data_list)
-    # add_flow_id(processed_data_list)
-    # update_tls(processed_data_list)
+
     # combined_list  = combine_flows(processed_data_list)
     # write_to_csv(combined_list, outputfname, list(combined_header_index.keys()))
 
@@ -512,40 +502,23 @@ def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
     
     snie_process_data_dict(outputfname)
 
-def sanitize_sni(sni):
-    if sni != "NA":
-        sni = sni.replace(" ", "")
-        snil = list(sni.replace(",", ""))
-        sni = ""
-        for item in snil:
-            if item != ",":
-                sni += item
 
-def snie_sanitize_data_list(data_list):
+def snie_sanitize_data():
+    # Format SNI field
     print("[+] Sanitizing Data")
-    for line in data_list:
-        if line == []:
-            continue
+    for key in processed_data.keys():
+        row = processed_data[key]
     
-        if isinstance(line[1], set):
-            tls_version = ""
-            for item in line[1]:
-                if item != "NA":
-                    tls_version += item + ", "
-            line[1] = tls_version
-            if line[1] == "":
-                line[1] = "NA"
-    
-        if line[2] != "NA":
-            sni = line[2]
+        if row["SNI"] != "NA":
+            sni = row["SNI"]
             sni = sni.replace(" ", "")
             snil = list(sni.replace(",", ""))
             sni = ""
             for item in snil:
                 if item != ",":
                     sni += item
-            line[2] = sni
-
+            row["SNI"] = sni
+        processed_data[key] = row
 
 def write_to_csv(data_list, fname, header_list):
     print("[+] Writing to", fname)
@@ -579,63 +552,6 @@ def snie_process_packets(MAX_PKT_COUNT, inputfname, outputfname):
 
     return
 
-def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
-    global flow_itr
-    global flow_map
-
-    dir = 0
-
-    if protocol not in ["TCP", "UDP", "QUIC"]:
-        return "NA", dir
-    
-    if ip_src > ip_dst:
-        ip_src, ip_dst = ip_dst, ip_src
-        port_src, port_dst = port_dst, port_src
-        dir = 1
-
-    if ip_src == ip_dst and port_src > port_dst:
-        dir = 1
-        port_src, port_dst = port_dst, port_src
-
-    flow_id = flow_map.get((protocol, ip_src, ip_dst, port_src, port_dst), None)
-
-    if(flow_id):
-        return flow_id, dir
-    
-    flow_id = flow_itr
-    flow_map[(protocol, ip_src, ip_dst, port_src, port_dst)] = flow_id
-
-    flow_itr += 1
-
-    return flow_id, dir
-
-def add_flow_id(data_list):
-    header_index["Flow ID"] = len(header_index)
-    header_index["Direction"] = len(header_index)
-    for line in data_list:
-        if line == []:
-            continue
-        flow_id, dir = get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]])
-        line.append(flow_id)
-        line.append(dir)
-
-def update_tls(data_list):
-    tls_info_map = {}
-
-    for data in data_list:
-        tls_info = tls_info_map.get(data[header_index["Flow ID"]], ("NA", "NA"))
-        if data[header_index["TLS version"]] != "NA":
-            tls_info = (data[header_index["TLS version"]], tls_info[1])
-        
-        if data[header_index["SNI"]] != "NA":
-            tls_info = (tls_info[0], data[header_index["SNI"]])
-        
-        tls_info_map[data[header_index["Flow ID"]]] = tls_info
-    
-    for data in data_list:
-        tls_info = tls_info_map.get(data[header_index["Flow ID"]], ("NA", "NA"))
-        data[header_index["TLS version"]] = tls_info[0]
-        data[header_index["SNI"]] = tls_info[1]
 
 
 
