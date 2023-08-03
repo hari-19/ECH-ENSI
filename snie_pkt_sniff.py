@@ -443,56 +443,6 @@ def create_sni_list(data_list, output_fname):
 
 
     
-def combine_flows(data_list):
-    print("[+] Combining flows")
-    d = {}
-    for line in data_list:
-        if line[header_index["Flow ID"]] not in d.keys():
-            new_list = [
-                line[header_index["Time"]],
-                line[header_index["TLS version"]],
-                line[header_index["SNI"]],
-                line[header_index["Source IP address"]],
-                line[header_index["Destination IP address"]],
-                line[header_index["Source port"]],
-                line[header_index["Destination Port"]],
-                line[header_index["Protocol"]],
-                line[header_index["TLS session duration (s)"]],
-                0,
-                0,
-                0            
-            ]
-
-            if line[header_index["Direction"]] == 0:
-                new_list[combined_header_index["Downloaded Data size (bytes) Up"]] = int(line[header_index["Downloaded Data size (bytes)"]])
-            else:
-                new_list[combined_header_index["Downloaded Data size (bytes) Down"]] = int(line[header_index["Downloaded Data size (bytes)"]])
-            
-            new_list[combined_header_index["Downloaded Data size (bytes) Total"]] += int(line[header_index["Downloaded Data size (bytes)"]])
-
-            d[line[header_index["Flow ID"]]] = new_list
-        else:
-            new_list = d[line[header_index["Flow ID"]]]
-            # if line[header_index["TLS session duration (s)"]] > new_list[combined_header_index["TLS session duration (s)"]]:
-            #     new_list[combined_header_index["TLS session duration (s)"]] = line[header_index["TLS session duration (s)"]]
-
-            if line[header_index["Direction"]] == 0:
-                new_list[combined_header_index["Downloaded Data size (bytes) Up"]] = int(line[header_index["Downloaded Data size (bytes)"]])
-            else:
-                new_list[combined_header_index["Downloaded Data size (bytes) Down"]] = int(line[header_index["Downloaded Data size (bytes)"]])
-            
-            new_list[combined_header_index["Downloaded Data size (bytes) Total"]] += int(line[header_index["Downloaded Data size (bytes)"]])
-
-            d[line[header_index["Flow ID"]]] = new_list
-    
-    new_data_list = []
-    for key in d:
-        new_data_list.append(d[key])
-
-    new_data_list.sort(key=lambda x: x[0])
-
-    return new_data_list
-
 
 def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
     for packet in raw_pkts:
