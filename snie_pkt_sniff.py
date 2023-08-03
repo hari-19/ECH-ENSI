@@ -55,6 +55,21 @@ header_index = {
     "SSL Certificate information": 11
 }
 
+combined_header_index = {
+    "Time": 0,
+    "TLS version": 1,
+    "SNI": 2,
+    "Source IP address": 3,
+    "Destination IP address": 4,
+    "Source port": 5,
+    "Destination Port": 6,
+    "Protocol": 7,
+    "TLS session duration (s)": 8,
+    "Downloaded Data size (bytes) Up": 9,
+    "Downloaded Data size (bytes) Down": 10,
+    "Downloaded Data size (bytes) Total": 11,
+}
+
 flow_itr = 0
 flow_map = {}
 
@@ -105,9 +120,7 @@ def snie_sniff_packets(STO, fname):
 
 
 
-def snie_read_raw_pkts(STO, fname):
-    if fname == None:
-        fname = "./Input_data/pkts_" + str(STO) + ".pcap"
+def snie_read_raw_pkts(fname):
     print("[+] Reading packets from " + str(fname))
     # pkts = pyshark.FileCapture(fname, display_filter="(ip.addr eq 10.7.55.152 and ip.addr eq 108.159.78.199) and (tcp.port eq 63516 and tcp.port eq 443)")
     pkts = pyshark.FileCapture(fname)
@@ -128,17 +141,17 @@ def snie_get_tr_proto(ip):
 
 def snie_get_tcppayloadlen(packet):
     t_len = int(packet['tcp'].len)
-    return t_len*8
+    return t_len
 
 
 def snie_get_udppayloadlen(packet):
     t_len = int(packet['udp'].length)
-    return t_len*8
+    return t_len
 
 
 def snie_get_otherpayloadlen(packet):
     t_len = int(0)
-    return t_len*8
+    return t_len
 
 
 def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
@@ -352,8 +365,8 @@ def handle_packet(packet):
                 print("Execution interrupted")
                 exit(0)
             total_count += 1
-            # print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
-                #   "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
+            print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
+                  "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
 
 def snie_process_data_dict(outputfname):
     processed_data_list = []
@@ -361,11 +374,105 @@ def snie_process_data_dict(outputfname):
     for key in processed_data:
         processed_data_list.append(processed_data[key])       
     
-    print()
     snie_sanitize_data_list(processed_data_list)
     add_flow_id(processed_data_list)
     update_tls(processed_data_list)
-    write_to_csv(processed_data_list, outputfname)
+    combined_list  = combine_flows(processed_data_list)
+    write_to_csv(combined_list, outputfname, list(combined_header_index.keys()))
+
+    create_sni_list(combined_list, outputfname.replace(".csv", "_sni.csv"))
+
+def create_sni_list(data_list, output_fname):
+    print("[+] Creating SNI list")
+    d = {}
+    header = {
+        "SNI": 0,
+        "Protocol": 1,
+        "Downloaded Data size (bytes) Up": 2,
+        "Downloaded Data size (bytes) Down": 3,
+        "Downloaded Data size (bytes) Total": 4,
+        "TLS session duration (s)": 5,
+    }
+
+    for line in data_list:
+        if line[combined_header_index["SNI"]] == "NA":
+            continue
+
+        key = line[combined_header_index["SNI"]], line[combined_header_index["Protocol"]]
+        if key not in d.keys():
+            d[key] = [
+                line[combined_header_index["SNI"]],
+                line[combined_header_index["Protocol"]],
+                line[combined_header_index["Downloaded Data size (bytes) Up"]],
+                line[combined_header_index["Downloaded Data size (bytes) Down"]],
+                line[combined_header_index["Downloaded Data size (bytes) Total"]],
+                line[combined_header_index["TLS session duration (s)"]]
+            ]
+        else:
+            l = d[key]
+            l[header["Downloaded Data size (bytes) Up"]] += line[combined_header_index["Downloaded Data size (bytes) Up"]]
+            l[header["Downloaded Data size (bytes) Down"]] += line[combined_header_index["Downloaded Data size (bytes) Down"]]
+            l[header["Downloaded Data size (bytes) Total"]] += line[combined_header_index["Downloaded Data size (bytes) Total"]]
+            l[header["TLS session duration (s)"]] += line[combined_header_index["TLS session duration (s)"]]
+            d[key] = l
+        
+    new_data_list = []
+    for key in d:
+        new_data_list.append(d[key])
+    
+    write_to_csv(new_data_list, output_fname, list(header.keys()))
+
+
+    
+def combine_flows(data_list):
+    print("[+] Combining flows")
+    d = {}
+    for line in data_list:
+        if line[header_index["Flow ID"]] not in d.keys():
+            new_list = [
+                line[header_index["Time"]],
+                line[header_index["TLS version"]],
+                line[header_index["SNI"]],
+                line[header_index["Source IP address"]],
+                line[header_index["Destination IP address"]],
+                line[header_index["Source port"]],
+                line[header_index["Destination Port"]],
+                line[header_index["Protocol"]],
+                line[header_index["TLS session duration (s)"]],
+                0,
+                0,
+                0            
+            ]
+
+            if line[header_index["Direction"]] == 0:
+                new_list[combined_header_index["Downloaded Data size (bytes) Up"]] = int(line[header_index["Downloaded Data size (bytes)"]])
+            else:
+                new_list[combined_header_index["Downloaded Data size (bytes) Down"]] = int(line[header_index["Downloaded Data size (bytes)"]])
+            
+            new_list[combined_header_index["Downloaded Data size (bytes) Total"]] += int(line[header_index["Downloaded Data size (bytes)"]])
+
+            d[line[header_index["Flow ID"]]] = new_list
+        else:
+            new_list = d[line[header_index["Flow ID"]]]
+            # if line[header_index["TLS session duration (s)"]] > new_list[combined_header_index["TLS session duration (s)"]]:
+            #     new_list[combined_header_index["TLS session duration (s)"]] = line[header_index["TLS session duration (s)"]]
+
+            if line[header_index["Direction"]] == 0:
+                new_list[combined_header_index["Downloaded Data size (bytes) Up"]] = int(line[header_index["Downloaded Data size (bytes)"]])
+            else:
+                new_list[combined_header_index["Downloaded Data size (bytes) Down"]] = int(line[header_index["Downloaded Data size (bytes)"]])
+            
+            new_list[combined_header_index["Downloaded Data size (bytes) Total"]] += int(line[header_index["Downloaded Data size (bytes)"]])
+
+            d[line[header_index["Flow ID"]]] = new_list
+    
+    new_data_list = []
+    for key in d:
+        new_data_list.append(d[key])
+
+    new_data_list.sort(key=lambda x: x[0])
+
+    return new_data_list
 
 
 def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
@@ -402,53 +509,28 @@ def snie_sanitize_data_list(data_list):
             line[2] = sni
 
 
-def write_to_csv(data_list, fname):
+def write_to_csv(data_list, fname, header_list):
     print("[+] Writing to", fname)
     with open(fname, 'w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(header_index.keys())
+        writer.writerow(header_list)
         for line in data_list:
             if line == []:
                 continue
             writer.writerow(line)
 
 
-def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
-    global flow_itr
-
-    if protocol not in ["TCP", "UDP", "QUIC"]:
-        return "NA"
-    if ip_src > ip_dst:
-        ip_src, ip_dst = ip_dst, ip_src
-    
-    if port_src > port_dst:
-        port_src, port_dst = port_dst, port_src
-
-    flow_id = flow_map.get((protocol, ip_src, ip_dst, port_src, port_dst), None)
-
-    if(flow_id):
-        return flow_id
-    
-    flow_id = flow_itr
-    flow_map[(protocol, ip_src, ip_dst, port_src, port_dst)] = flow_id
-
-    flow_itr += 1
-
-    return flow_id
-
-def add_flow_id(data_list):
-    for line in data_list:
-        if line == []:
-            continue
-        line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
-
 
 def snie_process_packets(MAX_PKT_COUNT, inputfname, outputfname):
     # Just for making sure we have permission
     f1 = open(outputfname, 'w', newline='')
     f1.close()
+
+    # Just for making sure we have permission
+    f1 = open(outputfname.replace(".csv", "_sni.csv"), 'w', newline='')
+    f1.close()
     
-    raw_pkts = snie_read_raw_pkts(STO, inputfname)
+    raw_pkts = snie_read_raw_pkts(inputfname)
     if raw_pkts is None:
         print("Too few packets to sniff")
     
@@ -463,32 +545,41 @@ def get_flow_id(protocol, ip_src, ip_dst, port_src, port_dst):
     global flow_itr
     global flow_map
 
+    dir = 0
+
     if protocol not in ["TCP", "UDP", "QUIC"]:
-        return "NA"
+        return "NA", dir
+    
     if ip_src > ip_dst:
         ip_src, ip_dst = ip_dst, ip_src
-    
-    if port_src > port_dst:
+        port_src, port_dst = port_dst, port_src
+        dir = 1
+
+    if ip_src == ip_dst and port_src > port_dst:
+        dir = 1
         port_src, port_dst = port_dst, port_src
 
     flow_id = flow_map.get((protocol, ip_src, ip_dst, port_src, port_dst), None)
 
     if(flow_id):
-        return flow_id
+        return flow_id, dir
     
     flow_id = flow_itr
     flow_map[(protocol, ip_src, ip_dst, port_src, port_dst)] = flow_id
 
     flow_itr += 1
 
-    return flow_id
+    return flow_id, dir
 
 def add_flow_id(data_list):
     header_index["Flow ID"] = len(header_index)
+    header_index["Direction"] = len(header_index)
     for line in data_list:
         if line == []:
             continue
-        line.append(get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]]))
+        flow_id, dir = get_flow_id(line[header_index["Protocol"]], line[header_index["Source IP address"]], line[header_index["Destination IP address"]], line[header_index["Source port"]], line[header_index["Destination Port"]])
+        line.append(flow_id)
+        line.append(dir)
 
 def update_tls(data_list):
     tls_info_map = {}
@@ -524,7 +615,7 @@ def sniff_packets_live(STO, fname, sender):
     print("[+] Sniffing packets for " + str(STO) + " seconds")
 
     capture = pyshark.LiveCapture(output_file=fname, )
-    
+    capture.sniff(timeout=STO)
     try:
         capture.apply_on_packets(prn_analyse_packet, timeout=STO)
     except TimeoutError:

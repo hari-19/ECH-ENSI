@@ -5,16 +5,14 @@ import time
 import multiprocessing
 import argparse
 import os
-from snie_pkt_sniff import snie_sniff_and_analyse_packets
+from snie_pkt_sniff import snie_sniff_and_analyse_packets, snie_process_packets, snie_sniff_packets
 
-def open_browser(url, timeout):
-    current_unix_time = int(time.time())
-    target_unix_time = current_unix_time + timeout
+def open_browser(url, timeout, analysis_process):
     driver = webdriver.Firefox()
+    analysis_process.start()
+    time.sleep(1)
     driver.get(url)
-    sleep_time = target_unix_time - int(time.time())
-    if sleep_time > 0:
-        time.sleep(sleep_time)
+    analysis_process.join()
     driver.close()
     driver.quit()
 
@@ -30,17 +28,18 @@ def capture_and_analyse(url, timeout):
     url = url.replace(".", "_")
     sniff_file = url + ".pcap"
     outputfile = f"./Output_data/{url}.csv" 
-    snie_sniff_and_analyse_packets(timeout, sniff_file, outputfile)
+    # snie_sniff_and_analyse_packets(timeout, sniff_file, outputfile)
+    timeout = int(timeout)
+    snie_sniff_packets(timeout, sniff_file)
+    sniff_file = "./Input_data/" + sniff_file
+    snie_process_packets("NA", sniff_file, outputfile)
+    print("[+] Done")
+    
 
 def open_capture_and_analyse(url, timeout):
-    p1 = multiprocessing.Process(target=open_browser, args=(url, timeout))
-    p2 = multiprocessing.Process(target=capture_and_analyse, args=(url, timeout,))
-    
-    p1.start()
-    p2.start()
-
-    p1.join()
-    p2.join()
+    # p1 = multiprocessing.Process(target=open_browser, args=(url, timeout))
+    analysis_process = multiprocessing.Process(target=capture_and_analyse, args=(url, timeout,))
+    open_browser(url, timeout, analysis_process)
 
 if __name__ == "__main__":
     parser=argparse.ArgumentParser()
