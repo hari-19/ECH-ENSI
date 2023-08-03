@@ -115,7 +115,7 @@ def generate_udp_dict_key(packet):
     return ("UDP", str(packet['ip'].src), str(packet['ip'].dst), str(packet['udp'].srcport), str(packet['udp'].dstport))
 
 def generate_quic_dict_key(saddr, daddr, sport, dport):
-    return ("QUIC", str(saddr), str(daddr), str(sport), str(dport))
+    return get_flow("QUIC", str(saddr), str(daddr), str(sport), str(dport))
 
 def generate_other_dict_key(packet):
     return (str(packet['ip'].proto), str(packet['ip'].src), str(packet['ip'].dst))
@@ -165,25 +165,6 @@ def snie_get_udppayloadlen(packet):
 def snie_get_otherpayloadlen(packet):
     t_len = int(0)
     return t_len
-
-
-def snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
-    sni_info = []
-    sni_info.append(str(tstamp))
-    sni_info.append(tls_version)
-    sni_info.append(str(sni))
-    sni_info.append(str(saddr))
-    sni_info.append(str(daddr))
-    sni_info.append(str(sport))
-    sni_info.append(str(dport))
-    sni_info.append("QUIC")
-    psize = str(len)
-    sni_info.append(str(psize))
-    sni_info.append(str(0))
-    sni_info.append(str(0))
-    sni_info.append(str(0))
-    return sni_info
-
 
 def snie_get_udp_prot_info(packet):
     sni_info = []
@@ -336,23 +317,44 @@ def snie_handle_tcp(packet):
     processed_data[key] = row
 
 def snie_record_quic_info(saddr, daddr, sport, dport, sni, len, tstamp, tls_version):
-    if generate_quic_dict_key(saddr, daddr, sport, dport) in processed_data.keys():
-        row = generate_row_dict(processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)])
-        osize = int(row["Downloaded Data size (bytes)"])
-        psize = len*8
-        dsize = osize + psize
-        row['Downloaded Data size (bytes)'] = str(dsize)
-        # Update data size
-        # Update TLS duration
-        ti = float(row['Time'])
-        te = float(tstamp)
-        tdiff = te - ti
-        # tdiff = tdiff.total_seconds()
-        row["TLS session duration (s)"] = tdiff
-        processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)] = generate_list_from_dict(row)
+    key, dir = generate_quic_dict_key(saddr, daddr, sport, dport)
+    if key in processed_data.keys():
+        row = processed_data[key]
     else:
-        sni_info = snie_get_quic_prot_info(saddr, daddr, sport, dport, sni, len*8, tstamp, tls_version)
-        processed_data[generate_quic_dict_key(saddr, daddr, sport, dport)] = sni_info
+        if dir == 0:
+            src_ip, src_port = str(saddr), str(sport)
+            dst_ip, dst_port = str(daddr), str(dport)
+        else:
+            src_ip, src_port = str(daddr), str(dport)
+            dst_ip, dst_port = str(saddr), str(sport)
+
+        row = {
+            "Initial Time": str(tstamp),
+            "TLS version": tls_version,
+            "SNI": str(sni),
+            "Source IP address": src_ip,
+            "Destination IP address": dst_ip,
+            "Source port": src_port,
+            "Destination Port": dst_port,
+            "Protocol": "QUIC",
+            "Packet length (Tx)": [],
+            "Packet length (Rx)": [],
+            "Packet length (All)": [],
+            "Time (Tx)": [],
+            "Time (Rx)": [],
+            "Time (All)": []
+        }
+    
+    if dir == 0:
+        row['Packet length (Tx)'].append(len)
+        row["Time (Tx)"].append(tstamp)
+    else:
+        row['Packet length (Rx)'].append(len)
+        row["Time (Rx)"].append(tstamp)
+    row['Packet length (All)'].append(len)
+    row["Time (All)"].append(tstamp)
+
+    processed_data[key] = row
 
 def handle_packet(packet):
     global total_count
@@ -363,7 +365,6 @@ def handle_packet(packet):
     if 'ip' in packet:
             try:
                 if 'quic' in packet:  # QUIC packet
-                    return
                     from snie_quic import sne_quic_extract_pkt_info
                     saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version = sne_quic_extract_pkt_info(packet)
                     snie_record_quic_info(saddr, daddr, sport, dport, sni, qlen, tstamp, tls_version)
