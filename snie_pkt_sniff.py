@@ -14,6 +14,7 @@ load_layer("tls")
 from scapy.layers.inet import IP, TCP
 import csv
 from rich.pretty import pprint
+import numpy as np
 
 pkt_count = 0
 pkts = []
@@ -387,71 +388,101 @@ def handle_packet(packet):
             # print("[+] Number of packets processed : TCP = " + str(tcp_count) + "  UDP = " + str(udp_count) + \
             #       "  QUIC = " + str(quic_count) + "  Total = " + str(total_count), end = "\r")
 
-def snie_process_data_dict(outputfname):
-    # processed_data_list = []
+def write_to_csv(data_list, fname, header_list):
+    print("[+] Writing to", fname)
+    with open(fname, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(header_list)
+        for line in data_list:
+            if line == []:
+                continue
+            writer.writerow(line)
 
-    # for key in processed_data:
-    #     processed_data_list.append(processed_data[key])       
+def get_metric(data_list):
+    if data_list == []:
+        return {
+            "sum": 0,
+            "mean": 0,
+            "std": 0,
+            "max": 0,
+            "min": 0
+        }
     
-    snie_sanitize_data()
-    pprint(processed_data)
+    d = np.array(data_list)
+    sum = np.sum(d)
+    mean = np.mean(d)
+    std = np.std(d)
+    maxEle = np.max(d)
+    minEle = np.min(d)
 
-    # combined_list  = combine_flows(processed_data_list)
-    # write_to_csv(combined_list, outputfname, list(combined_header_index.keys()))
-
-    # create_sni_list(combined_list, outputfname.replace(".csv", "_sni.csv"))
-
-def create_sni_list(data_list, output_fname):
-    print("[+] Creating SNI list")
-    d = {}
-    header = {
-        "SNI": 0,
-        "Protocol": 1,
-        "Downloaded Data size (bytes) Up": 2,
-        "Downloaded Data size (bytes) Down": 3,
-        "Downloaded Data size (bytes) Total": 4,
-        "TLS session duration (s)": 5,
+    return {
+        "sum": sum,
+        "mean": mean,
+        "std": std,
+        "max": maxEle,
+        "min": minEle
     }
 
-    for line in data_list:
-        if line[combined_header_index["SNI"]] == "NA":
+def get_inter_arrival_time(data_list):
+    out = []
+    for i, j in zip(data_list[:-1], data_list[1:]):
+        j = float(j)
+        i = float(i)
+        out.append(j-i)
+    return out
+
+def get_per_flow_metrics(processed_data, outputfname):
+    print("[+] Getting per flow metrics")
+    
+    # More metrics gets added dynamically to this list
+    output_header = [
+        "Initial Time",
+        "TLS version",
+        "SNI",
+        "Source IP address",
+        "Destination IP address",
+        "Source port",
+        "Destination Port",
+        "Protocol",
+        "TLS session duration (s)",
+    ]
+
+    output_header_init = output_header.copy()
+
+    output_list = []
+    for key in processed_data.keys():
+        if(processed_data[key]["Protocol"] not in ["QUIC", "TCP", "UDP"]):
             continue
+        data_list = []
+        data = processed_data[key]
+        # print(float(data["Time (All)"][-1]), float(data["Time (All)"][0]), str(float(data["Time (All)"][-1]) - float(data["Time (All)"][0])))
+        data["TLS session duration (s)"] = str(float(data["Time (All)"][-1]) - float(data["Time (All)"][0]))
+        for key in output_header_init: 
+            data_list.append(data[key])
 
-        key = line[combined_header_index["SNI"]], line[combined_header_index["Protocol"]]
-        if key not in d.keys():
-            d[key] = [
-                line[combined_header_index["SNI"]],
-                line[combined_header_index["Protocol"]],
-                line[combined_header_index["Downloaded Data size (bytes) Up"]],
-                line[combined_header_index["Downloaded Data size (bytes) Down"]],
-                line[combined_header_index["Downloaded Data size (bytes) Total"]],
-                line[combined_header_index["TLS session duration (s)"]]
-            ]
-        else:
-            l = d[key]
-            l[header["Downloaded Data size (bytes) Up"]] += line[combined_header_index["Downloaded Data size (bytes) Up"]]
-            l[header["Downloaded Data size (bytes) Down"]] += line[combined_header_index["Downloaded Data size (bytes) Down"]]
-            l[header["Downloaded Data size (bytes) Total"]] += line[combined_header_index["Downloaded Data size (bytes) Total"]]
-            l[header["TLS session duration (s)"]] += line[combined_header_index["TLS session duration (s)"]]
-            d[key] = l
+        for key in ["Packet length (Tx)", "Packet length (Rx)", "Packet length (All)"]:
+            metric = get_metric(data[key])
+            for key2 in metric.keys():
+                header_name = key + " " + key2
+                if header_name not in output_header:
+                    output_header.append(header_name)
+                data_list.append(metric[key2])
         
-    new_data_list = []
-    for key in d:
-        new_data_list.append(d[key])
-    
-    write_to_csv(new_data_list, output_fname, list(header.keys()))
+        for key in ["Time (Tx)", "Time (Rx)", "Time (All)"]:
+            inter_arrival_time = get_inter_arrival_time(data[key])
+            metric = get_metric(inter_arrival_time)
+            for key2 in metric.keys():
+                header_name = key + " " + key2
+                if header_name not in output_header:
+                    output_header.append(header_name)
+                data_list.append(metric[key2])
+        output_list.append(data_list)
 
+    outputfname = outputfname.replace(".csv", "_per_flow.csv")
+    write_to_csv(output_list, outputfname, output_header)
 
-    
-
-def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
-    for packet in raw_pkts:
-        handle_packet(packet)
-        if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
-            break
-    
-    snie_process_data_dict(outputfname)
-
+def get_per_sni_metrics(processed_data, output_fname):
+    pass
 
 def snie_sanitize_data():
     # Format SNI field
@@ -470,6 +501,23 @@ def snie_sanitize_data():
             row["SNI"] = sni
         processed_data[key] = row
 
+def snie_process_data_dict(outputfname):
+    snie_sanitize_data()
+    # pprint(processed_data)
+
+    get_per_flow_metrics(processed_data, outputfname)
+    get_per_sni_metrics(processed_data, outputfname)
+
+
+def snie_process_raw_packets(raw_pkts, outputfname, MAX_PKT_COUNT):
+    for packet in raw_pkts:
+        handle_packet(packet)
+        if MAX_PKT_COUNT != "NA" and pkt_count >= MAX_PKT_COUNT:
+            break
+    
+    snie_process_data_dict(outputfname)
+
+
 def write_to_csv(data_list, fname, header_list):
     print("[+] Writing to", fname)
     with open(fname, 'w', newline='') as file:
@@ -484,7 +532,7 @@ def write_to_csv(data_list, fname, header_list):
 
 def snie_process_packets(MAX_PKT_COUNT, inputfname, outputfname):
     # Just for making sure we have permission
-    f1 = open(outputfname, 'w', newline='')
+    f1 = open(outputfname.replace(".csv", "_per_flow.csv"), 'w', newline='')
     f1.close()
 
     # Just for making sure we have permission
