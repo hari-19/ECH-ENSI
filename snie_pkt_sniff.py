@@ -405,7 +405,7 @@ def get_metric(data_list):
             "mean": 0,
             "std": 0,
             "max": 0,
-            "min": 0
+            # "min": 0
         }
     
     d = np.array(data_list)
@@ -413,14 +413,14 @@ def get_metric(data_list):
     mean = np.mean(d)
     std = np.std(d)
     maxEle = np.max(d)
-    minEle = np.min(d)
+    # minEle = np.min(d)
 
     return {
         "sum": sum,
         "mean": mean,
         "std": std,
         "max": maxEle,
-        "min": minEle
+        # "min": minEle
     }
 
 def get_inter_arrival_time(data_list):
@@ -450,12 +450,12 @@ def get_per_flow_metrics(processed_data, outputfname):
     output_header_init = output_header.copy()
 
     output_list = []
+    isFirst = True
     for key in processed_data.keys():
         if(processed_data[key]["Protocol"] not in ["QUIC", "TCP", "UDP"]):
             continue
         data_list = []
         data = processed_data[key]
-        # print(float(data["Time (All)"][-1]), float(data["Time (All)"][0]), str(float(data["Time (All)"][-1]) - float(data["Time (All)"][0])))
         data["TLS session duration (s)"] = str(float(data["Time (All)"][-1]) - float(data["Time (All)"][0]))
         for key in output_header_init: 
             data_list.append(data[key])
@@ -464,7 +464,7 @@ def get_per_flow_metrics(processed_data, outputfname):
             metric = get_metric(data[key])
             for key2 in metric.keys():
                 header_name = key + " " + key2
-                if header_name not in output_header:
+                if isFirst:
                     output_header.append(header_name)
                 data_list.append(metric[key2])
         
@@ -473,16 +473,106 @@ def get_per_flow_metrics(processed_data, outputfname):
             metric = get_metric(inter_arrival_time)
             for key2 in metric.keys():
                 header_name = key + " " + key2
-                if header_name not in output_header:
+                if isFirst:
                     output_header.append(header_name)
                 data_list.append(metric[key2])
         output_list.append(data_list)
+        isFirst = False
 
     outputfname = outputfname.replace(".csv", "_per_flow.csv")
     write_to_csv(output_list, outputfname, output_header)
 
+def sort_one_list_by_another(list1, list2):
+    zipped_pairs = zip(list1, list2)
+    X = []
+    Y = []
+    for x, y in sorted(zipped_pairs):
+        X.append(x)
+        Y.append(y)
+    return X, Y
+
 def get_per_sni_metrics(processed_data, output_fname):
-    pass
+    print("[+] Getting per SNI metrics")
+    
+    # More metrics gets added dynamically to this list
+    output_header = [
+        "Initial Time",
+        "TLS version",
+        "SNI",
+        "Protocol",
+    ]
+
+    output_header_init = output_header.copy()
+    sni_dict = {}
+    start_time  = None
+
+    for key in processed_data.keys():
+        if(processed_data[key]["SNI"] == "NA"):
+            continue
+
+        if start_time == None or start_time > float(processed_data[key]["Initial Time"]):
+            start_time = float(processed_data[key]["Initial Time"])
+
+        sni_key = processed_data[key]["SNI"], processed_data[key]["Protocol"]
+        if sni_key not in sni_dict.keys():
+            data = {}
+
+            for k in output_header_init:
+                data[k] = processed_data[key][k]
+            
+            data["TLS version"] = set()
+            data["TLS version"].add(processed_data[key]["TLS version"])
+
+            for k in ["Packet length (Tx)", "Packet length (Rx)", "Packet length (All)", "Time (Tx)", "Time (Rx)", "Time (All)"]:
+                data[k] = processed_data[key][k]
+
+            sni_dict[sni_key] = data
+
+        else:
+            data = sni_dict[sni_key]
+            data["TLS version"].add(processed_data[key]["TLS version"])
+
+            for k in ["Packet length (Tx)", "Packet length (Rx)", "Packet length (All)", "Time (Tx)", "Time (Rx)", "Time (All)"]:
+                data[k].extend(processed_data[key][k])
+            
+            sni_dict[sni_key] = data
+    
+    output_header.append("TLS session duration (s)")
+    output_header.insert(1, "Relative Time")
+    isFirst = True
+    output_list = []
+    for sni_key in sni_dict.keys():
+        data = sni_dict[sni_key]
+        data["TLS version"] = ', '.join(list(data["TLS version"]))
+        data["Relative Time"] = float(data["Initial Time"]) - start_time
+
+        for lengthKey, timeKey in [("Packet length (Tx)", "Time (Tx)"), ("Packet length (Rx)", "Time (Rx)"), ("Packet length (All)", "Time (All)")]:
+            data[timeKey] = [float(x) for x in data[timeKey]]
+            data[timeKey], data[lengthKey] = sort_one_list_by_another(data[timeKey], data[lengthKey])
+
+        data["TLS session duration (s)"] = str(float(data["Time (All)"][-1]) - float(data["Time (All)"][0]))
+        
+        for key in ["Packet length (Tx)", "Packet length (Rx)", "Packet length (All)"]:
+            metric = get_metric(data[key])
+            for key2 in metric.keys():
+                header_name = key + " " + key2
+                if isFirst:
+                    output_header.append(header_name)
+                data[header_name] = metric[key2]
+
+        for key in ["Time (Tx)", "Time (Rx)", "Time (All)"]:
+            inter_arrival_time = get_inter_arrival_time(data[key])
+            metric = get_metric(inter_arrival_time)
+            for key2 in metric.keys():
+                header_name = key + " " + key2
+                if isFirst:
+                    output_header.append(header_name)
+                data[header_name] = metric[key2]
+        
+        output_list.append([data[key] for key in output_header])
+        isFirst = False
+    write_to_csv(output_list, output_fname.replace(".csv", "_sni.csv"), output_header)
+
 
 def snie_sanitize_data():
     # Format SNI field
