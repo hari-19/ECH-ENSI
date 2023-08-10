@@ -541,6 +541,11 @@ def get_per_sni_metrics(processed_data, output_fname):
     output_header.insert(1, "Relative Time")
     isFirst = True
     output_list = []
+    
+    totalRx = 0
+    totalTx = 0
+    totalAll = 0
+    
     for sni_key in sni_dict.keys():
         data = sni_dict[sni_key]
         data["TLS version"] = ', '.join(list(data["TLS version"]))
@@ -569,8 +574,29 @@ def get_per_sni_metrics(processed_data, output_fname):
                     output_header.append(header_name)
                 data[header_name] = metric[key2]
         
-        output_list.append([data[key] for key in output_header])
         isFirst = False
+
+        totalRx += data["Packet length (Rx) sum"]
+        totalTx += data["Packet length (Tx) sum"]
+        totalAll += data["Packet length (All) sum"]
+
+
+
+    output_header.insert(6, "Size Tx %")
+    output_header.insert(7, "Size Rx %")
+    output_header.insert(8, "Size Tx Overall %")
+    output_header.insert(9, "Size Rx Overall %")
+    output_header.insert(10, "Size All Overall %")
+
+    for key in sni_dict.keys():
+        data = sni_dict[key]
+        data["Size Rx %"] = data["Packet length (Rx) sum"] / data["Packet length (All) sum"] *100
+        data["Size Tx %"] = data["Packet length (Tx) sum"] / data["Packet length (All) sum"] *100
+        data["Size Rx Overall %"] = data["Packet length (Rx) sum"] / totalRx *100
+        data["Size Tx Overall %"] = data["Packet length (Tx) sum"] / totalTx *100
+        data["Size All Overall %"] = data["Packet length (All) sum"] / totalAll *100
+
+        output_list.append([data[key] for key in output_header])
     write_to_csv(output_list, output_fname.replace(".csv", "_sni.csv"), output_header)
 
 
